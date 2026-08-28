@@ -1,0 +1,401 @@
+{
+  "info": {
+    "name": "AMS Infotainment API",
+    "description": "API collection for https://infotainment.ams.com.kh/ — the WordPress backend the Next.js frontend consumes, plus the frontend's own route handlers.\n\nCustom endpoints live in two plugins:\n- AMS3E-API (by Sak Ravuth): the wp/v2/web/* article endpoints.\n- AMS Frontend API (ours; source at docs/wordpress/ams-frontend-api.php): tv-show-episodes, episode, and /hero-embed.\n\nCommon list envelope:\n{ \"status\": \"OK\", \"data\": [...], \"page\": 1, \"per_page\": 10, \"total\": \"10415\", \"total_page\": 2083 }\n\nSingle-object envelope (wp/v2/web/episode):\n{ \"status\": \"OK\", \"data\": { ... } }\n\nNote: not every endpoint here is consumed by the frontend — get-article-by-id, find-articles, get-author, the hot-news pair, advertise, secondary-menu and contact-form are documented for completeness. The requests the Next.js app actually issues are marked [frontend] in their descriptions.\n\nUpdated 2026-07-13.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "https://infotainment.ams.com.kh/wp-json", "type": "string" },
+    { "key": "site_url", "value": "https://infotainment.ams.com.kh", "type": "string" },
+    { "key": "frontend_url", "value": "http://localhost:3000", "type": "string" },
+    { "key": "revalidate_secret", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "Homepage / Frontend (wp/v2/web — AMS3E-API)",
+      "description": "Custom article/menu/ads endpoints the public frontend uses.",
+      "item": [
+        {
+          "name": "Get Articles (paginated feed)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/get-articles?page_no=1&page_size=10&category_id=&date_filter=",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "get-articles"],
+              "query": [
+                { "key": "page_no", "value": "1", "description": "Page number (1-based)" },
+                { "key": "page_size", "value": "10", "description": "Items per page" },
+                { "key": "category_id", "value": "", "description": "Optional: comma-separated category IDs" },
+                { "key": "date_filter", "value": "", "description": "Optional: today | 1day_ago | 2days_ago" }
+              ]
+            },
+            "description": "[frontend] Main news feed. Returns { status, data[], page, per_page, total, total_page }. Item: { id, title, categories[{id,name,slug}], category (primary slug), slug, post_date (relative Khmer, e.g. '1ម៉ោងមុន'), thumbnail (s3 URL), description }.\n\nUsed by src/lib/articles.ts and src/lib/home-data.ts (page_size=9 for the homepage daily/latest grids)."
+          }
+        },
+        {
+          "name": "Get Article by Slug",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/get-article-by-slug?slug=",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "get-article-by-slug"],
+              "query": [{ "key": "slug", "value": "", "description": "Required: article slug" }]
+            },
+            "description": "[frontend] Single article detail. Used by src/lib/articles.ts for the article page.\n\nNOTE: returns a RAW object (no {status,data} envelope). Fields: { id, title, thumbnail, categories[{id,name}], publish_date ('YYYY-MM-DD HH:mm:ss'), last_updated, description, post_content (Gutenberg HTML), author{id,author_name,profile,description}, seo{title,description} }."
+          }
+        },
+        {
+          "name": "Get Article by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/get-article-by-id?pId=",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "get-article-by-id"],
+              "query": [{ "key": "pId", "value": "", "description": "Required: post id" }]
+            },
+            "description": "Single article detail by post id (same raw shape as get-article-by-slug)."
+          }
+        },
+        {
+          "name": "Get Articles by Category Slug",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/get-article-by-category-slug?page_no=1&page_size=10&slug=all-news",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "get-article-by-category-slug"],
+              "query": [
+                { "key": "page_no", "value": "1" },
+                { "key": "page_size", "value": "10" },
+                { "key": "slug", "value": "all-news", "description": "Required: category slug (e.g. all-news, entertainment-news, life-style-news)" }
+              ]
+            },
+            "description": "[frontend] Category listing feed. Same list envelope as get-articles. Used by src/lib/articles.ts (page_size=11 for the paginated category page) and src/lib/home-data.ts (slug=life-style-news, page_size=6 for the homepage lifestyle grid).\n\nNote: `total` comes back as a NUMBER here vs a STRING on get-articles — coerce."
+          }
+        },
+        {
+          "name": "Find Articles (search)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/find-articles?s=",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "find-articles"],
+              "query": [{ "key": "s", "value": "", "description": "Required: search term" }]
+            },
+            "description": "Site search."
+          }
+        },
+        {
+          "name": "Get Author",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/get-author?authorId=",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "get-author"],
+              "query": [{ "key": "authorId", "value": "", "description": "Required: author id" }]
+            },
+            "description": "Author profile."
+          }
+        },
+        {
+          "name": "Get Entertainment Hot News",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/get-entertainment-hot-news",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "get-entertainment-hot-news"]
+            },
+            "description": "Latest post in BOTH 'hot-news' and 'entertainment-news' categories within a 2-day window. { status, message, data[] } — often empty."
+          }
+        },
+        {
+          "name": "Get Lifestyle Hot News",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/get-life-style-hot-news",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "get-life-style-hot-news"]
+            },
+            "description": "Same as entertainment hot news but for 'hot-news' + 'life-style-news'. Often empty."
+          }
+        },
+        {
+          "name": "Advertise",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/advertise?ads_location=Home Page&page_no=1&per_page=10",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "advertise"],
+              "query": [
+                { "key": "ads_location", "value": "Home Page", "description": "Optional: 'Home Page' | 'Page Detail'" },
+                { "key": "position", "value": "", "description": "Optional: ads_position filter" },
+                { "key": "page_no", "value": "1" },
+                { "key": "per_page", "value": "10" }
+              ]
+            },
+            "description": "Ads from the wp_ams3e_ads_central table (managed via the Advertisement admin screen). Item: { id, ads_title, ads_location, ads_position, image }. Envelope: { status, message, data[], current_page, per_page, total_items }."
+          }
+        },
+        {
+          "name": "Secondary Menu",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/secondary-menu",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "secondary-menu"]
+            },
+            "description": "Nav menu for location 'AMS 3E'. Currently 404s because no menu is assigned to that location (Appearance > Menus)."
+          }
+        },
+        {
+          "name": "Contact Form (submit)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"\",\n  \"email\": \"\",\n  \"question\": \"\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/contact-form",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "contact-form"]
+            },
+            "description": "Contact form submission. Fields: full_name, email, question (inserts into wp_ams3e_contact_form + sends a Telegram message)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "AMS Frontend API (custom — docs/wordpress/ams-frontend-api.php)",
+      "description": "Our standalone plugin. Must be installed/active on WordPress. Registers two REST routes (tv-show-episodes, episode) plus the /hero-embed page.",
+      "item": [
+        {
+          "name": "TV Show Episodes (Obsok / health / any show)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/tv-show-episodes?tv_show=14512&page_no=1&page_size=24",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "tv-show-episodes"],
+              "query": [
+                { "key": "tv_show", "value": "14512", "description": "Required: MasVideos tv_show id. Obsok=14512, One-Minute-for-Health=14570, Daily Feed=84591, The Fact=84589, Reaction=16518, Unlock-the-Life=14288, Tamchet MoMo=69616, Greenbox=14616, Vanayeatra=14450, Studio 11=14564" },
+                { "key": "page_no", "value": "1" },
+                { "key": "page_size", "value": "24" }
+              ]
+            },
+            "description": "[frontend] Episodes of a TV show, filtered by the MasVideos `_tv_show_id` post meta (not exposed in default REST). Returns { status, data[{ id, title, episode_number ('S1:E44'), permalink, post_thumbnail }], page, per_page, total, total_page }.\n\nUsed by src/lib/episodes.ts — backs the program-page carousel and the episode-page season grid."
+          }
+        },
+        {
+          "name": "Get Episode by ID (detail)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/episode?id=",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "episode"],
+              "query": [
+                { "key": "id", "value": "", "description": "Required: episode post id (numeric, > 0). 404s unless the post is a published `episode`." }
+              ]
+            },
+            "description": "[frontend] Single episode detail — the video source and metadata the default REST route does not expose. Used by src/lib/episode.ts to render the player on every episode page.\n\nReturns a SINGLE-OBJECT envelope: { status: 'OK', data: {...} } — not the list envelope.\n\ndata: {\n  id, title,\n  episode_number  ('S1:E44'),\n  run_time        (free text, inconsistently typed: '02:01 នាទី', '02: 15នាទី'),\n  release_date    (Unix ts of MIDNIGHT PHNOM PENH TIME — see note below),\n  tv_show_id, tv_show_title,\n  season_id, season_name ('រដូវកាលទី១', '' when unset),\n  post_thumbnail,\n  video: { choice, url, attachment, embed }\n}\n\nGOTCHA — release_date: Vodi formats this timestamp in UTC and so prints every episode one day early. The plugin returns it RAW; the frontend must format it in Asia/Phnom_Penh. Do not render it as UTC."
+          }
+        },
+        {
+          "name": "Featured Program (homepage video banner)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/featured-program",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "featured-program"]
+            },
+            "description": "[frontend] The wide video banner on the homepage (វនយាត្រា today) — and above the footer on program/episode pages. Used by src/lib/featured-program.ts.\n\nNo params. WHICH program is featured, and the artwork behind it, are set in WordPress under Settings → Featured Program (option `ams_afa_featured_program`).\n\nReturns { status: 'OK', data: {...} }, or { status: 'OK', data: null } — NOT a 404 — when nothing is configured or the chosen movie was unpublished. The frontend hides the banner on null.\n\ndata: {\n  id, slug, title,\n  description    (Gutenberg HTML, like core's excerpt.rendered),\n  permalink,\n  poster         (PORTRAIT, ~346x600 — the movie's featured image),\n  cover          (WIDE banner, ~2560x576 — the per-slot artwork),\n  release_date   (Unix ts, MIDNIGHT PHNOM PENH — same UTC trap as episodes),\n  schedule       (NOT a duration! editors put the broadcast slot in _movie_run_time),\n  tv_show_id,\n  video: { choice, url, attachment, embed }\n}\n\nTHREE GOTCHAS, all learned the hard way:\n1. `poster` and `cover` are DIFFERENT images — portrait vs ultra-wide. Not interchangeable.\n2. `cover` is deliberately NOT the movie's own `_vodi_movie_bg_image`. On vanna-yeatra those are different crops of the same scene — 19925 (2560x576) on the homepage vs 20277 (2560x398) on the movie — so which one fits is a per-slot layout call, mirroring the Vodi `wp:vodi/section-featured-movie` block (which stores movie_id AND bg_image together). Note every variant carries the show's wordmark in the pixels; the frontend prints only a small title label so the logo isn't doubled.\n3. `video.embed` GOES STALE — on vanna-yeatra it holds an older Vimeo id than `video.url`. WordPress never shows it (choice is `movie_url`, so Vodi renders `url` via oEmbed). ALWAYS prefer `url`; fall back to `embed` only when `url` is empty."
+          }
+        },
+        {
+          "name": "Hero Embed (standalone slider page)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{site_url}}/hero-embed",
+              "host": ["{{site_url}}"],
+              "path": ["hero-embed"]
+            },
+            "description": "Renders ONLY the homepage Slider Revolution slider (alias 'homepage-2', id 603) as a standalone HTML page for <iframe> embedding in the frontend. Sends a `Content-Security-Policy: frame-ancestors` header for whitelisted origins. Returns HTML (not JSON)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "MasVideos CPTs (wp/v2)",
+      "description": "Standard REST for the Vodi/MasVideos custom post types. Episodes CANNOT be filtered by show here (the link is private meta) — use tv-show-episodes instead.",
+      "item": [
+        {
+          "name": "TV Shows",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/tv_show?per_page=20&_fields=id,slug,link,title",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "tv_show"],
+              "query": [
+                { "key": "per_page", "value": "20" },
+                { "key": "_fields", "value": "id,slug,link,title", "description": "trim payload" }
+              ]
+            },
+            "description": "TV Show CPT (programs). e.g. slug=obsok is id 14512."
+          }
+        },
+        {
+          "name": "Episodes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/episode?per_page=10&_fields=id,slug,link,title",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "episode"],
+              "query": [
+                { "key": "per_page", "value": "10" },
+                { "key": "_fields", "value": "id,slug,link,title", "description": "trim the heavy default payload (~500KB/item otherwise)" }
+              ]
+            },
+            "description": "Episode CPT (all shows, date-ordered). ~1480 total. No show filter in default REST."
+          }
+        },
+        {
+          "name": "Movies / Videos / Persons",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/movie?per_page=10&_fields=id,slug,link,title",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "movie"],
+              "query": [
+                { "key": "per_page", "value": "10" },
+                { "key": "_fields", "value": "id,slug,link,title" }
+              ]
+            },
+            "description": "Other MasVideos CPTs also exist via standard REST: wp/v2/movie, wp/v2/video, wp/v2/person (swap the path)."
+          }
+        },
+        {
+          "name": "Program Metadata (single movie/tv_show by id)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/movie/14516?_fields=id,slug,title,excerpt,featured_media,_links&_embed=wp:featuredmedia",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "movie", "14516"],
+              "query": [
+                { "key": "_fields", "value": "id,slug,title,excerpt,featured_media,_links", "description": "REQUIRED in practice — see description" },
+                { "key": "_embed", "value": "wp:featuredmedia", "description": "Resolves featured_media into the poster URL" }
+              ]
+            },
+            "description": "[frontend] Title / description / poster for a program page. Used by src/lib/programs.ts (fetchProgramMeta), which holds a hardcoded registry of slug → { postType, postId }. postType is `movie` for most programs; swap the path segment for `tv_show` where the registry says so.\n\nTWO GOTCHAS, both load-bearing:\n1. WP core returns ~768KB per movie, nearly all of it Yoast metadata. `_fields` trims it under 8KB.\n2. `_links` MUST stay in the `_fields` list or `_embed` yields nothing — the embed resolver walks _links to find the attachment. Drop it and the poster silently comes back empty.\n\nExample id 14516 = 'ពិតអត់' (fact-check)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "WordPress Core (wp/v2)",
+      "description": "Standard WordPress REST endpoints (generic content access + discovery).",
+      "item": [
+        {
+          "name": "Posts",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/posts?page=1&per_page=10",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "posts"],
+              "query": [{ "key": "page", "value": "1" }, { "key": "per_page", "value": "10" }]
+            }
+          }
+        },
+        {
+          "name": "Categories",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/categories?per_page=100&_fields=id,parent,name,slug,count,link",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "categories"],
+              "query": [
+                { "key": "per_page", "value": "100" },
+                { "key": "_fields", "value": "id,parent,name,slug,count,link", "description": "trim payload; `parent` is needed to rebuild the nav tree" }
+              ]
+            },
+            "description": "[frontend] Category terms. Used by src/lib/categories.ts to build the category navigation — it reads `parent` to nest children under their top-level category."
+          }
+        },
+        {
+          "name": "API Discovery Root",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/",
+              "host": ["{{base_url}}"],
+              "path": [""]
+            },
+            "description": "Lists all namespaces and routes exposed by the WordPress REST API."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Next.js Frontend (own route handlers)",
+      "description": "Endpoints served by the Next.js app itself (src/app/api/**), NOT by WordPress. These run against {{frontend_url}}, not {{base_url}}.",
+      "item": [
+        {
+          "name": "Revalidate (on-demand cache invalidation)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{frontend_url}}/api/revalidate?secret={{revalidate_secret}}&tag=articles",
+              "host": ["{{frontend_url}}"],
+              "path": ["api", "revalidate"],
+              "query": [
+                { "key": "secret", "value": "{{revalidate_secret}}", "description": "Required: must equal the REVALIDATE_SECRET env var, else 401." },
+                { "key": "tag", "value": "articles", "description": "Cache tag to invalidate. Defaults to 'articles' if omitted." }
+              ]
+            },
+            "description": "Source: src/app/api/revalidate/route.ts. POST only.\n\nPoint a WordPress 'post published/updated' webhook here so fresh content appears immediately instead of waiting out the time-based ISR window (get-articles is cached 300s, article detail 3600s, home feed 120s).\n\nTags in use across the app:\n- articles            (any article list)\n- home                (homepage feed)\n- article:<slug>      (one article)\n- category:<slug>     (one category listing)\n- categories          (the category tree)\n- episodes            (any episode list)\n- episode:<id>        (one episode)\n- tv-show:<id>        (one show's episode list)\n- program / program:<slug>\n\nReturns { ok: true, revalidated: <tag> } on success, or 401 { ok: false, error: 'invalid secret' }.\n\nRevalidation uses the 'max' profile — stale content is served while it regenerates in the background."
+          }
+        }
+      ]
+    }
+  ]
+}

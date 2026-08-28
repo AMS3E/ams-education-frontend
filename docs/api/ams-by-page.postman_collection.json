@@ -1,0 +1,1428 @@
+{
+  "info": {
+    "name": "AMS Infotainment — by Page",
+    "_postman_id": "a2b7c4e0-3d19-4f2a-8c6b-ams3ebypage01",
+    "description": "The AMS Infotainment frontend's API calls, organised by the PAGE that fires them so you can see, section by section, exactly what data each part of a page is querying.\n\nWHY THIS EXISTS\nThe UI is right but some sections show the wrong data. Each request below is labelled with the exact on-screen section it feeds and the exact params the Next.js app sends (page_size, slug, ids). Fire a request, look at `data`, and check it matches the section. Where a block uses a HARDWIRED category slug (the landing-page tail, the article sidebar), a wrong slug here is the usual cause of wrong data.\n\nHOW IT MAPS TO THE CODE\nEvery request names its source: e.g. `src/lib/home-data.ts → getHomeFeed`. The base client is `src/lib/api/client.ts` (apiFetch). All reads are server-side.\n\nENVELOPES\n- List endpoints (get-articles, get-article-by-category-slug, tv-show-episodes):\n  { status:'OK', data:[...], page, per_page, total, total_page }\n  GOTCHA: get-articles returns `total` as a STRING; get-article-by-category-slug returns it as a NUMBER.\n- Single-object (web/episode, web/program, web/featured-program):\n  { status:'OK', data:{...} }  — featured-program can return data:null (banner hidden), NOT a 404.\n- get-article-by-slug: a RAW object, NO {status,data} envelope.\n- Core wp/v2/* (posts, categories, users, comments, pages, episode): plain WordPress REST shapes.\n\nVARIABLES — a few requests need a real id/slug you paste in (article_slug, episode_id, author_id). The quickest source is noted on each. Category-scoped requests already carry real slugs so they send as-is.\n\nBackends: `wp/v2/web/*` split across two WP plugins — AMS3E-API (articles/menu) and our AMS Frontend API (tv-show-episodes, episode, featured-program, hero-embed). `wp/v2/posts|categories|users|comments|pages|episode` are WordPress core. `/api/revalidate` is the Next.js app itself.\n\nA sibling collection, ams-infotainment-api.postman_collection.json, documents the same endpoints grouped by BACKEND instead of by page (and includes endpoints the frontend does not use).\n\nGenerated from the code on 2026-07-16.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "https://infotainment.ams.com.kh/wp-json", "type": "string" },
+    { "key": "site_url", "value": "https://infotainment.ams.com.kh", "type": "string" },
+    { "key": "frontend_url", "value": "http://localhost:3000", "type": "string" },
+    { "key": "revalidate_secret", "value": "", "type": "string" },
+    { "key": "article_slug", "value": "", "type": "string", "description": "A real article slug. Grab one from Homepage → 'Daily Events — Today' (data[].slug)." },
+    { "key": "article_id", "value": "", "type": "string", "description": "The article's WP post id — the `id` field from Article detail. Used by the comments read/submit requests." },
+    { "key": "page_id", "value": "", "type": "string", "description": "A static page's WP id. Grab from Static pages → 'Page index' (the id whose link ends /contact/ etc.)." },
+    { "key": "episode_video_url", "value": "", "type": "string", "description": "An episode's video.url (from Episode detail), for the Vimeo run-time request." },
+    { "key": "category_slug", "value": "all-news", "type": "string", "description": "A category term SLUG (not a URL path). e.g. all-news, entertainment-news, life-style-news, celebrity/…-news." },
+    { "key": "program_post_id", "value": "14562", "type": "string", "description": "A program's WP post id (movie/tv_show). 14562 = អផ្សុក (obsok). See src/lib/programs.ts for the id table." },
+    { "key": "program_show_id", "value": "14512", "type": "string", "description": "The SAME program's tv_show id — a DIFFERENT number, the only handle on its episodes. 14512 = obsok." },
+    { "key": "episode_id", "value": "", "type": "string", "description": "An episode post id. Grab one from any 'tv-show-episodes' response (data[].id)." },
+    { "key": "author_slug", "value": "triya-ams", "type": "string", "description": "An author slug. Grab from Author → 'All authors' (data[].slug)." },
+    { "key": "author_id", "value": "", "type": "string", "description": "An author user id. Grab from Author → 'All authors' (data[].id)." },
+    { "key": "section_term_id", "value": "", "type": "string", "description": "A SECTION category term id (entertainment-news / life-style-news). Grab from Global → 'Category tree'. Only used to scope the section landing page's day-window tabs." },
+    { "key": "after", "value": "", "type": "string", "description": "Set automatically by the day-window pre-request scripts (Phnom Penh midnight)." },
+    { "key": "before", "value": "", "type": "string", "description": "Set automatically by the day-window pre-request scripts (Phnom Penh midnight)." }
+  ],
+  "item": [
+    {
+      "name": "🌐 Global — Header & Footer (every page)",
+      "description": "The site shell wraps every route (src/app/layout.tsx → SiteHeader / SiteFooter).\n\nONLY ONE live API call: the category tree, which builds the header's section→topic→{news,reports} menu. Everything else in the shell is HARDCODED in the frontend and hits no API:\n- Nav pills, digital-content icon strip, program posters → src/lib/navigation.ts (static registry)\n- Footer link columns, legal links, newsletter CTA, socials → src/lib/home-data.ts + src/lib/site.ts (static)\n\nThe category tree is also the shared lookup (id → listing URL, and taxonomy depth) that nearly every other page uses to turn a category id into a link. If category chips or breadcrumbs point at the wrong place site-wide, start here.",
+      "item": [
+        {
+          "name": "Category tree (nav menu + shared id→href lookup)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/categories?per_page=100&_fields=id,parent,name,slug,count,link",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "categories"],
+              "query": [
+                { "key": "per_page", "value": "100" },
+                { "key": "_fields", "value": "id,parent,name,slug,count,link", "description": "parent is needed to rebuild the section→topic tree; link is the real URL path." }
+              ]
+            },
+            "description": "SECTION: header dropdown menu (SiteHeader), plus the id→href / id→depth maps used across the app.\nSOURCE: src/lib/categories.ts → getCategoryTerms / getNavMenu / getCategoryHrefs / getCategoryDepths / resolveCategory.\n\nReturns the 26 terms. The app TRANSPOSES this (WP nests contentType→section→topic; the menu shows section→topic→{news,reports}) and sorts topics by a hand-written order (TOPIC_ORDER) because the taxonomy carries no term_order.\n\nDEBUG: a term's `link` (e.g. …/category/celebrity/news/) is the source of truth for its URL — the app reads the path out of it, not out of the slug. Wrong chip/breadcrumb links usually trace to a term whose `link` changed in WP."
+          }
+        }
+      ]
+    },
+    {
+      "name": "🏠 Homepage ( / )",
+      "description": "Route: src/app/page.tsx. Data: src/lib/home-data.ts → getHomeFeed (one Promise.all of the 8 calls below) + getFeaturedPrograms (static).\n\nSECTION → REQUEST\n- ព្រឹត្តិការណ៍ប្រចាំថ្ងៃ (Daily Events), 3 tabs → 'Today' (get-articles) + 'Yesterday' + 'Day before' (core posts date windows)\n- របាយការណ៍ថ្មីៗ (Latest Reports) → reports feed\n- Lifestyle grid → life-style-news feed\n- Video feature banner → featured-program\n- Health grid → tv-show-episodes (1-minute-for-health)\n- Obsok grid → tv-show-episodes (obsok)\n- Hero slider → /hero-embed iframe (HTML, not JSON)\n\nSTATIC (no API): PosterBand, PopularPrograms band, nav pills — all from src/lib/navigation.ts.\n\nNOTE ON DRIFT: the by-backend collection still lists the daily grid at page_size=9; the code now sends page_size=5 (below). If a section shows too many/too few items, the page_size here is the truth.\n\nEvery grid FALLS BACK to curated mock data on error, so an empty/failed API call shows placeholder content rather than a blank — a section 'showing wrong data' can also mean 'showing the fallback'.",
+      "item": [
+        {
+          "name": "Daily Events — 'Today' tab",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/get-articles?page_no=1&page_size=5&category_id=6913",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "get-articles"],
+              "query": [
+                { "key": "page_no", "value": "1" },
+                { "key": "page_size", "value": "5" },
+                { "key": "category_id", "value": "6913", "description": "6913 = all-news (ព្រឹត្តិការណ៍), the news root. DIRECT assignments only — it does NOT aggregate the subtree." }
+              ]
+            },
+            "description": "SECTION: Daily Events widget, ថ្ងៃនេះ tab (lead card + 2×2 cluster).\nSOURCE: home-data.ts → getHomeFeed → fetchHomeCards(…&category_id=6913).\n\nDELIBERATELY NOT DATE-FILTERED: this is the newest five of the news root, not 'today'. The tab must render a lead + four on every load, and a true today-window returns only what has published so far (1 article mid-morning, 0 before the day's first post). The other two tabs ARE true day windows.\n\nSCOPE GOTCHA: category_id matches DIRECT term assignments — 6913 reaches ~780 of the site's ~10,450 articles, not all of them. Every recent article carries the root tag (so this returns the same 5 as the unscoped feed), but slug=all-news would aggregate the subtree instead (10,283) and is NOT equivalent.\n\nItem: { id, title, categories[{id,name,slug}], category, slug, post_date (relative Khmer), thumbnail, description }."
+          }
+        },
+        {
+          "name": "Daily Events — 'Yesterday' tab (date window)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Yesterday's calendar day in Asia/Phnom_Penh (UTC+7), mirroring src/lib/wp-core.ts dayStart().",
+                  "const daysAgo = 1;",
+                  "const pp = new Date(Date.now() + 7 * 3600 * 1000);",
+                  "const pad = n => String(n).padStart(2, '0');",
+                  "const midnight = off => {",
+                  "  const d = new Date(Date.UTC(pp.getUTCFullYear(), pp.getUTCMonth(), pp.getUTCDate() - off));",
+                  "  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T00:00:00`;",
+                  "};",
+                  "pm.variables.set('after', midnight(daysAgo));",
+                  "pm.variables.set('before', midnight(daysAgo - 1));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/posts?after={{after}}&before={{before}}&per_page=5&categories=6913&_embed=wp:featuredmedia,wp:term&_fields=id,slug,date,title,_links,_embedded",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "posts"],
+              "query": [
+                { "key": "after", "value": "{{after}}", "description": "Phnom-Penh midnight starting yesterday (set by pre-request script)." },
+                { "key": "before", "value": "{{before}}", "description": "Phnom-Penh midnight starting today (set by pre-request script)." },
+                { "key": "per_page", "value": "5" },
+                { "key": "categories", "value": "6913", "description": "6913 = all-news (ព្រឹត្តិការណ៍), the news root — core's `categories` also matches DIRECT assignments only." },
+                { "key": "_embed", "value": "wp:featuredmedia,wp:term", "description": "resolves the thumbnail + category terms" },
+                { "key": "_fields", "value": "id,slug,date,title,_links,_embedded", "description": "trims ~3–4MB of payload; _links must stay for _embed to work" }
+              ]
+            },
+            "description": "SECTION: Daily Events widget, ម្សិលមិញ tab — a TRUE calendar-day window, scoped to the news root.\nSOURCE: wp-core.ts → fetchDayCards(1, 6913). Uses WordPress CORE posts, NOT get-articles: get-articles' own date_filter ('1day_ago') OVERLAPS yesterday+today, so the clean per-day bucket has to come from an after/before window.\n\nThe 6913 scope is a no-op on recent days (every recent article carries the root tag — verified 5/5 for yesterday), but it enforces the ព្រឹត្តិការណ៍ meaning going forward.\n\nCore returns a different shape (title.rendered, thumbnail behind _embedded['wp:featuredmedia']). The pre-request script fills after/before with Phnom-Penh midnights so this returns the same day the site shows."
+          }
+        },
+        {
+          "name": "Daily Events — 'Day before' tab (date window)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Two days ago, Asia/Phnom_Penh (UTC+7) — mirrors src/lib/wp-core.ts dayStart().",
+                  "const daysAgo = 2;",
+                  "const pp = new Date(Date.now() + 7 * 3600 * 1000);",
+                  "const pad = n => String(n).padStart(2, '0');",
+                  "const midnight = off => {",
+                  "  const d = new Date(Date.UTC(pp.getUTCFullYear(), pp.getUTCMonth(), pp.getUTCDate() - off));",
+                  "  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T00:00:00`;",
+                  "};",
+                  "pm.variables.set('after', midnight(daysAgo));",
+                  "pm.variables.set('before', midnight(daysAgo - 1));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/posts?after={{after}}&before={{before}}&per_page=5&categories=6913&_embed=wp:featuredmedia,wp:term&_fields=id,slug,date,title,_links,_embedded",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "posts"],
+              "query": [
+                { "key": "after", "value": "{{after}}" },
+                { "key": "before", "value": "{{before}}" },
+                { "key": "per_page", "value": "5" },
+                { "key": "categories", "value": "6913", "description": "6913 = all-news (ព្រឹត្តិការណ៍), the news root." },
+                { "key": "_embed", "value": "wp:featuredmedia,wp:term" },
+                { "key": "_fields", "value": "id,slug,date,title,_links,_embedded" }
+              ]
+            },
+            "description": "SECTION: Daily Events widget, ម្សិលម្ងៃ tab — a TRUE calendar-day window, scoped to the news root.\nSOURCE: wp-core.ts → fetchDayCards(2, 6913). Same shape as the 'Yesterday' request, one day further back."
+          }
+        },
+        {
+          "name": "Latest Reports section",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/get-articles?page_no=1&page_size=4&category_id=991,971,989",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "get-articles"],
+              "query": [
+                { "key": "page_no", "value": "1" },
+                { "key": "page_size", "value": "4", "description": "the section shows 4 cards" },
+                { "key": "category_id", "value": "991,971,989", "description": "explicit comma-separated category IDs — returns articles in ANY of them (a UNION). Replaces the old slug=reports subtree aggregation." }
+              ]
+            },
+            "description": "SECTION: របាយការណ៍ថ្មីៗ (Latest Reports).\n\nQUERY-BY-ID (new approach): get-articles with an explicit category_id list, instead of get-article-by-category-slug?slug=reports. `category_id` takes comma-separated IDs and returns the UNION — you pin the exact categories rather than letting the backend aggregate one slug's subtree (which is what was pulling the wrong articles in).\n\nSOURCE: home-data.ts → getHomeFeed (fetchHomeCards). The frontend now sends THIS query — migrated from slug=reports on 2026-07-16.\n\nIDs: 971 = reports root (បទយកការណ៍), 989 = life-style-health-and-beauty-reports, 991 = life-style-life-tips-reports. This union ≈ 171 items vs 173 for the full slug=reports subtree; the top cards match. Item shape is IDENTICAL to the slug endpoint (same 8 fields), so no mapper change was needed."
+          }
+        },
+        {
+          "name": "Lifestyle section",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/get-article-by-category-slug?slug=life-style-news&page_no=1&page_size=6",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "get-article-by-category-slug"],
+              "query": [
+                { "key": "slug", "value": "life-style-news" },
+                { "key": "page_no", "value": "1" },
+                { "key": "page_size", "value": "6" }
+              ]
+            },
+            "description": "SECTION: Lifestyle grid.\nSOURCE: home-data.ts → getHomeFeed (fetchHomeCards, slug=life-style-news)."
+          }
+        },
+        {
+          "name": "Health grid (1-minute-for-health episodes)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/tv-show-episodes?tv_show=14570&page_no=1&page_size=200",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "tv-show-episodes"],
+              "query": [
+                { "key": "tv_show", "value": "14570", "description": "1-minute-for-health tv_show id" },
+                { "key": "page_no", "value": "1" },
+                { "key": "page_size", "value": "200", "description": "the app fetches the WHOLE show (up to 200/page) then keeps the newest 12" }
+              ]
+            },
+            "description": "SECTION: Health grid (12 cards).\nSOURCE: home-data.ts → fetchEpisodeCards('1-minute-for-health', 14570, 12) → episodes.ts fetchShowEpisodes.\n\nWHY page_size=200 not 12: the whole show is fetched so slugs can be de-duplicated across the full list (a page of 12 in isolation would emit hrefs the router 404s on). The 12 shown are the newest after sorting. Item: { id, title, episode_number ('S1:E12'), permalink, post_thumbnail }."
+          }
+        },
+        {
+          "name": "Obsok grid (obsok episodes)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/tv-show-episodes?tv_show=14512&page_no=1&page_size=200",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "tv-show-episodes"],
+              "query": [
+                { "key": "tv_show", "value": "14512", "description": "obsok tv_show id" },
+                { "key": "page_no", "value": "1" },
+                { "key": "page_size", "value": "200" }
+              ]
+            },
+            "description": "SECTION: Obsok grid (12 cards).\nSOURCE: home-data.ts → fetchEpisodeCards('obsok', 14512, 12). Same mechanics as the Health grid."
+          }
+        },
+        {
+          "name": "Video feature banner",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/featured-program",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "featured-program"]
+            },
+            "description": "SECTION: VideoFeatureStrip (wide video banner). Also appears above the footer on program/episode pages.\nSOURCE: src/lib/featured-program.ts → getFeaturedProgram.\n\nWHICH program + the banner art are set in WP admin (Settings → Featured Program), not in code. Returns { status:'OK', data:{…} } or data:null (banner hidden — NOT a 404).\ndata: { id, slug, title, description(HTML), permalink, poster(PORTRAIT), cover(WIDE banner), release_date(Unix, midnight Phnom Penh), schedule, tv_show_id, video:{choice,url,attachment,embed} }.\nGOTCHAS: poster≠cover (portrait vs ultra-wide); prefer video.url over the stale video.embed."
+          }
+        },
+        {
+          "name": "Hero slider (iframe page, HTML not JSON)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{site_url}}/hero-embed",
+              "host": ["{{site_url}}"],
+              "path": ["hero-embed"]
+            },
+            "description": "SECTION: the hero at the top of the page.\nSOURCE: src/components/home/HeroEmbed.tsx — an <iframe> pointing at WordPress's /hero-embed, which renders the Slider Revolution slider as standalone HTML. NOT a JSON data call; included so the page's full surface is here. Landing pages pass ?alias=<x> to pick their own slider (ignored until the WP plugin is ≥1.5.0)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "📄 Article page ( /article/[slug] )",
+      "description": "Route: src/app/article/[slug]/page.tsx. Data: articles.ts → getArticle + getArticleExtras, comments.ts → getComments.\n\nSECTION → REQUEST\n- Main article (title, body, featured image, author, breadcrumb) → get-article-by-slug\n- Comment count + thread → comments (read)\n- Sidebar 'ប្រធានបទពេញនិយម' / below-body 'ព័ត៌មានសង្ខេប' / 'ព័ត៌មានផ្សេងៗទៀត' / prev-next pager → get-articles page_size=24 (ONE feed, sliced into disjoint windows)\n- Below-body 'របាយការណ៍ថ្មីៗ' → reports feed\n- Below-body 'អត្ថបទកម្សាន្ត' → entertainment-news feed\n- Sidebar 'រសជាតិ' → life-style-travel-news\n- Sidebar 'ស្នេហានិងទំនាក់ទំនង' → life-style-love-and-relation-news\n- Sidebar 'ភាពយន្ត' → entertainment-movie-and-music-news\n- Comment submit → POST comments (REST), fallback POST wp-comments-post.php\n\nSTATIC: the program strip below the article is the hardcoded registry (navigation.ts).\n\nDEBUG — this is a prime suspect for 'wrong data in a section': the three sidebar widgets have EDITORIAL headings that are NOT their term names (រសជាតិ='flavour' heads the TRAVEL feed; ភាពយន្ត heads movie-and-music). Each request below names both the heading and the slug it should be pulling — verify the pairing.",
+      "item": [
+        {
+          "name": "Article detail (main content)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/get-article-by-slug?slug={{article_slug}}",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "get-article-by-slug"],
+              "query": [
+                { "key": "slug", "value": "{{article_slug}}", "description": "Set the article_slug variable, or grab one from Homepage → Daily Events (data[].slug)." }
+              ]
+            },
+            "description": "SECTION: the whole main column — featured image, title, meta line, body, author box, breadcrumb.\nSOURCE: articles.ts → getArticle.\n\nRAW object, NO {status,data} envelope. Fields: { id, title, thumbnail, categories[{id,name}], publish_date ('YYYY-MM-DD HH:mm:ss'), last_updated, description, post_content (Gutenberg HTML), author{id,author_name,profile,description}, seo{title,description} }.\nNOTE: detail `categories` carry NO slug (only id+name) — the app joins them to the Global category tree by id to build breadcrumb/chip links."
+          }
+        },
+        {
+          "name": "Comments (read thread)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/comments?post={{article_id}}&per_page=100&orderby=date&order=asc&_fields=id,parent,author_name,author_avatar_urls,date,content",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "comments"],
+              "query": [
+                { "key": "post", "value": "{{article_id}}", "description": "the article's WP post id (the `id` from Article detail). Set an article_id var or paste it here." },
+                { "key": "per_page", "value": "100" },
+                { "key": "orderby", "value": "date" },
+                { "key": "order", "value": "asc", "description": "oldest first, how the thread reads" },
+                { "key": "_fields", "value": "id,parent,author_name,author_avatar_urls,date,content" }
+              ]
+            },
+            "description": "SECTION: the comment COUNT in the meta line (and the thread itself).\nSOURCE: src/lib/comments.ts → getComments. WordPress core — only APPROVED comments come back, threaded via `parent`.\nNOTE: the visible comments list component is currently commented out in the page, but the count is still rendered from this call."
+          }
+        },
+        {
+          "name": "Recent feed — sidebar 'popular' + summaries + other-news + prev/next",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/get-articles?page_no=1&page_size=24",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "get-articles"],
+              "query": [
+                { "key": "page_no", "value": "1" },
+                { "key": "page_size", "value": "24" }
+              ]
+            },
+            "description": "SECTION: four blocks are DISJOINT windows of this one 24-item feed —\n- sidebar ប្រធានបទពេញនិយម → items 0–4\n- ព័ត៌មានសង្ខេប (summaries) → items 5–12\n- ព័ត៌មានផ្សេងៗទៀត (other news) → items 13–21\n- prev/next pager → items 22, 23\nSOURCE: articles.ts → getArticleExtras → recentRefs(24).\nThe windows are disjoint on purpose so no article appears twice on the page. These blocks are the ones with NO category in their name; the category-named blocks are fetched from their own term (below)."
+          }
+        },
+        {
+          "name": "Below-body 'របាយការណ៍ថ្មីៗ' (Recent Reports)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/get-article-by-category-slug?slug=reports&page_no=1&page_size=8",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "get-article-by-category-slug"],
+              "query": [
+                { "key": "slug", "value": "reports" },
+                { "key": "page_no", "value": "1" },
+                { "key": "page_size", "value": "8" }
+              ]
+            },
+            "description": "SECTION: RelatedColumns → របាយការណ៍ថ្មីៗ.\nSOURCE: getArticleExtras → categoryRefs('reports', 8)."
+          }
+        },
+        {
+          "name": "Below-body 'អត្ថបទកម្សាន្ត' (Entertainment)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/get-article-by-category-slug?slug=entertainment-news&page_no=1&page_size=9",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "get-article-by-category-slug"],
+              "query": [
+                { "key": "slug", "value": "entertainment-news" },
+                { "key": "page_no", "value": "1" },
+                { "key": "page_size", "value": "9" }
+              ]
+            },
+            "description": "SECTION: RelatedColumns → អត្ថបទកម្សាន្ត (first item as a large featured card, rest as rows).\nSOURCE: getArticleExtras → categoryRefs('entertainment-news', 9)."
+          }
+        },
+        {
+          "name": "Sidebar 'រសជាតិ' (heading≠term — Travel feed)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/get-article-by-category-slug?slug=life-style-travel-news&page_no=1&page_size=3",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "get-article-by-category-slug"],
+              "query": [
+                { "key": "slug", "value": "life-style-travel-news" },
+                { "key": "page_no", "value": "1" },
+                { "key": "page_size", "value": "3" }
+              ]
+            },
+            "description": "SECTION: sidebar widget headed រសជាតិ ('flavour').\nSOURCE: articles.ts SIDEBAR_WIDGETS[0] → categoryRefs('life-style-travel-news', 3).\nDEBUG: heading and term deliberately disagree — this is exactly the kind of block that used to be sliced from the generic feed and show unrelated articles. It must come from life-style-travel-news."
+          }
+        },
+        {
+          "name": "Sidebar 'ស្នេហានិងទំនាក់ទំនង' (Love & Relationships)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/get-article-by-category-slug?slug=life-style-love-and-relation-news&page_no=1&page_size=5",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "get-article-by-category-slug"],
+              "query": [
+                { "key": "slug", "value": "life-style-love-and-relation-news" },
+                { "key": "page_no", "value": "1" },
+                { "key": "page_size", "value": "5" }
+              ]
+            },
+            "description": "SECTION: sidebar widget headed ស្នេហានិងទំនាក់ទំនង.\nSOURCE: articles.ts SIDEBAR_WIDGETS[1] → categoryRefs('life-style-love-and-relation-news', 5)."
+          }
+        },
+        {
+          "name": "Sidebar 'ភាពយន្ត' (heading≠term — Movie & Music feed)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/get-article-by-category-slug?slug=entertainment-movie-and-music-news&page_no=1&page_size=5",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "get-article-by-category-slug"],
+              "query": [
+                { "key": "slug", "value": "entertainment-movie-and-music-news" },
+                { "key": "page_no", "value": "1" },
+                { "key": "page_size", "value": "5" }
+              ]
+            },
+            "description": "SECTION: sidebar widget headed ភាពយន្ត ('film').\nSOURCE: articles.ts SIDEBAR_WIDGETS[2] → categoryRefs('entertainment-movie-and-music-news', 5).\nDEBUG: heading≠term again — must come from entertainment-movie-and-music-news."
+          }
+        },
+        {
+          "name": "Comment submit — REST (primary)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"post\": {{article_id}},\n  \"author_name\": \"Test Reader\",\n  \"author_email\": \"test@example.com\",\n  \"content\": \"សាកល្បងមតិយោបល់\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/wp/v2/comments",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "comments"]
+            },
+            "description": "SECTION: the comment form (submit).\nSOURCE: src/lib/comment-action.ts → submitComment → postViaRest.\n201 = created. If anonymous commenting isn't enabled the API answers 401 { code:'rest_comment_login_required' } and the app falls back to the classic endpoint below. WARNING: this actually posts a comment (usually held for moderation)."
+          }
+        },
+        {
+          "name": "Comment submit — classic form (fallback)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/x-www-form-urlencoded" }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "comment_post_ID", "value": "{{article_id}}" },
+                { "key": "author", "value": "Test Reader" },
+                { "key": "email", "value": "test@example.com" },
+                { "key": "comment", "value": "សាកល្បងមតិយោបល់" }
+              ]
+            },
+            "url": {
+              "raw": "{{site_url}}/wp-comments-post.php",
+              "host": ["{{site_url}}"],
+              "path": ["wp-comments-post.php"]
+            },
+            "description": "SECTION: comment form fallback (used when REST returns rest_comment_login_required).\nSOURCE: comment-action.ts → postViaForm. A 3xx redirect = success/held. WARNING: actually posts a comment."
+          }
+        }
+      ]
+    },
+    {
+      "name": "🗂️ Category listing ( /category/[...path] )",
+      "description": "Route: src/app/category/[...path]/page.tsx. Data: categories.ts → resolveCategory (uses the Global category tree) + articles.ts → getCategoryPage.\n\nSECTION → REQUEST\n- Main article list (featured card + rows) + pagination → get-article-by-category-slug page_size=10\n- Sidebar 'ប្រធានបទពេញនិយម' → THIS category, page_size=3\n- Sidebar 'របាយការណ៍' → reports, page_size=3\n- Sidebar 'អត្ថបទពេញនិយម' ('most read') → get-articles page_size=3 (no view-count field exists, so it's honest recents)\n\nDRIFT NOTE: the by-backend collection lists page_size=11 for the listing; the code sends page_size=10 (1 featured + 9 rows).\n\nThis route serves LISTINGS (/category/celebrity/news); the magazine LANDING pages (/celebrity) are a separate route — see the '🎯 Landing pages' folder.",
+      "item": [
+        {
+          "name": "Listing feed (main column + pagination)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/get-article-by-category-slug?slug={{category_slug}}&page_no=1&page_size=10",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "get-article-by-category-slug"],
+              "query": [
+                { "key": "slug", "value": "{{category_slug}}", "description": "term SLUG (e.g. all-news, entertainment-news). Aggregates over the term's descendants." },
+                { "key": "page_no", "value": "1", "description": "the URL's /page/N segment maps here" },
+                { "key": "page_size", "value": "10", "description": "1 featured card + 9 rows; total_page is derived from this" }
+              ]
+            },
+            "description": "SECTION: the main article list and the pagination footer.\nSOURCE: articles.ts → getCategoryPage. `total_page` drives Pagination — change page_no to see later pages."
+          }
+        },
+        {
+          "name": "Sidebar 'ប្រធានបទពេញនិយម' (this category's latest)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/get-article-by-category-slug?slug={{category_slug}}&page_no=1&page_size=3",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "get-article-by-category-slug"],
+              "query": [
+                { "key": "slug", "value": "{{category_slug}}" },
+                { "key": "page_no", "value": "1" },
+                { "key": "page_size", "value": "3" }
+              ]
+            },
+            "description": "SECTION: sidebar widget 1 — the ONLY block scoped to the term you're viewing.\nSOURCE: getCategoryPage → categoryRefs(category, 3). It used to render global recents on every listing; must now match {{category_slug}}."
+          }
+        },
+        {
+          "name": "Sidebar 'របាយការណ៍' (Reports)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/get-article-by-category-slug?slug=reports&page_no=1&page_size=3",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "get-article-by-category-slug"],
+              "query": [
+                { "key": "slug", "value": "reports" },
+                { "key": "page_no", "value": "1" },
+                { "key": "page_size", "value": "3" }
+              ]
+            },
+            "description": "SECTION: sidebar widget 2 — បទយកការណ៍.\nSOURCE: getCategoryPage → categoryRefs('reports', 3). Named for reports, so it comes from the reports tree (it used to leak news articles)."
+          }
+        },
+        {
+          "name": "Sidebar 'អត្ថបទពេញនិយម' (most read → recents)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/get-articles?page_no=1&page_size=3",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "get-articles"],
+              "query": [
+                { "key": "page_no", "value": "1" },
+                { "key": "page_size", "value": "3" }
+              ]
+            },
+            "description": "SECTION: sidebar widget 3 — 'most read'.\nSOURCE: getCategoryPage → recentRefs(3). There is NO view-count field anywhere in REST, so this is deliberately most-recent site-wide, not a real ranking."
+          }
+        }
+      ]
+    },
+    {
+      "name": "🎯 Landing pages — Section & Topic ( /celebrity, /life-style … )",
+      "description": "Route: src/app/[...path]/page.tsx (the site's ROOT catch-all). Data: categories.ts → resolveLanding + landing-data.ts → getLandingFeed.\n\nThese are the ELEVEN magazine landing pages (2 sections + 9 topics), distinct from the /category listings. Section pages: /entertainment-news, /life-style. Topic pages: /celebrity, /movie-and-music, /strange, /culture, /life-style/travel, /life-style/love-and-relation, /life-style/health-and-beauty, /life-style/life-tips, /life-style/architecture.\n\nWHY THIS IS THE #1 SUSPECT FOR WRONG DATA: almost every block on a landing page is HARDWIRED to a specific category slug (see landing-data.ts TAIL/MATIKA/FEATURES) — NOT to the page's own term. Two sections and nine topics all render the same tail. So a block can be 'correct by design' yet look wrong for the page you're on. Each request names the exact block heading + slug the code sends; the subfolders separate the section-only head, the topic-only head, and the tail shared by all eleven.\n\nSTATIC: the សម្រាប់លោកអ្នក poster band = getFeaturedPrograms(15) from the registry (no API).\n\nStatic WP pages (/contact, /jobs, …) also resolve through this same route — see the '📃 Static pages' folder.",
+      "item": [
+        {
+          "name": "① Section head (only /entertainment-news, /life-style)",
+          "description": "Rendered ONLY on the two SECTION landing pages. Example values use the entertainment-news section — swap the slug/term id for life-style.",
+          "item": [
+            {
+              "name": "Section daily — 'Today' tab",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/wp/v2/web/get-article-by-category-slug?slug=entertainment-news&page_no=1&page_size=5",
+                  "host": ["{{base_url}}"],
+                  "path": ["wp", "v2", "web", "get-article-by-category-slug"],
+                  "query": [
+                    { "key": "slug", "value": "entertainment-news", "description": "the SECTION term slug (or life-style-news)" },
+                    { "key": "page_no", "value": "1" },
+                    { "key": "page_size", "value": "5" }
+                  ]
+                },
+                "description": "SECTION: SectionHead daily-events widget, ថ្ងៃនេះ tab (scoped to the section's own term).\nSOURCE: landing-data.ts → getLandingFeed → categoryCards(term.slug, 5)."
+              }
+            },
+            {
+              "name": "Section daily — 'Yesterday' tab (date window, term-scoped)",
+              "event": [
+                {
+                  "listen": "prerequest",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const daysAgo = 1;",
+                      "const pp = new Date(Date.now() + 7 * 3600 * 1000);",
+                      "const pad = n => String(n).padStart(2, '0');",
+                      "const midnight = off => {",
+                      "  const d = new Date(Date.UTC(pp.getUTCFullYear(), pp.getUTCMonth(), pp.getUTCDate() - off));",
+                      "  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T00:00:00`;",
+                      "};",
+                      "pm.variables.set('after', midnight(daysAgo));",
+                      "pm.variables.set('before', midnight(daysAgo - 1));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/wp/v2/posts?after={{after}}&before={{before}}&per_page=5&categories={{section_term_id}}&_embed=wp:featuredmedia,wp:term&_fields=id,slug,date,title,_links,_embedded",
+                  "host": ["{{base_url}}"],
+                  "path": ["wp", "v2", "posts"],
+                  "query": [
+                    { "key": "after", "value": "{{after}}" },
+                    { "key": "before", "value": "{{before}}" },
+                    { "key": "per_page", "value": "5" },
+                    { "key": "categories", "value": "{{section_term_id}}", "description": "the section term id — grab from Global → Category tree. If left empty this returns site-wide, not section-scoped.", "disabled": false },
+                    { "key": "_embed", "value": "wp:featuredmedia,wp:term" },
+                    { "key": "_fields", "value": "id,slug,date,title,_links,_embedded" }
+                  ]
+                },
+                "description": "SECTION: SectionHead daily-events, ម្សិលមិញ tab, scoped to the section term.\nSOURCE: wp-core.ts → fetchDayCards(1, term.id). Set section_term_id (from the Global category tree) so `categories=` scopes it; empty = site-wide."
+              }
+            },
+            {
+              "name": "Section daily — 'Day before' tab (date window, term-scoped)",
+              "event": [
+                {
+                  "listen": "prerequest",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const daysAgo = 2;",
+                      "const pp = new Date(Date.now() + 7 * 3600 * 1000);",
+                      "const pad = n => String(n).padStart(2, '0');",
+                      "const midnight = off => {",
+                      "  const d = new Date(Date.UTC(pp.getUTCFullYear(), pp.getUTCMonth(), pp.getUTCDate() - off));",
+                      "  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T00:00:00`;",
+                      "};",
+                      "pm.variables.set('after', midnight(daysAgo));",
+                      "pm.variables.set('before', midnight(daysAgo - 1));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/wp/v2/posts?after={{after}}&before={{before}}&per_page=5&categories={{section_term_id}}&_embed=wp:featuredmedia,wp:term&_fields=id,slug,date,title,_links,_embedded",
+                  "host": ["{{base_url}}"],
+                  "path": ["wp", "v2", "posts"],
+                  "query": [
+                    { "key": "after", "value": "{{after}}" },
+                    { "key": "before", "value": "{{before}}" },
+                    { "key": "per_page", "value": "5" },
+                    { "key": "categories", "value": "{{section_term_id}}" },
+                    { "key": "_embed", "value": "wp:featuredmedia,wp:term" },
+                    { "key": "_fields", "value": "id,slug,date,title,_links,_embedded" }
+                  ]
+                },
+                "description": "SECTION: SectionHead daily-events, ម្សិលម្ងៃ tab.\nSOURCE: wp-core.ts → fetchDayCards(2, term.id)."
+              }
+            },
+            {
+              "name": "Top News block (ព័ត៌មានពេញនិយម)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/wp/v2/web/get-article-by-category-slug?slug=all-news&page_no=1&page_size=6",
+                  "host": ["{{base_url}}"],
+                  "path": ["wp", "v2", "web", "get-article-by-category-slug"],
+                  "query": [
+                    { "key": "slug", "value": "all-news" },
+                    { "key": "page_no", "value": "1" },
+                    { "key": "page_size", "value": "6" }
+                  ]
+                },
+                "description": "SECTION: SectionHead → ព័ត៌មានពេញនិយម.\nSOURCE: landing-data.ts TAIL.topNews → categoryRefs('all-news', 6). Section pages only."
+              }
+            },
+            {
+              "name": "Reports block (របាយការណ៍ថ្មីៗ)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/wp/v2/web/get-article-by-category-slug?slug=reports&page_no=1&page_size=10",
+                  "host": ["{{base_url}}"],
+                  "path": ["wp", "v2", "web", "get-article-by-category-slug"],
+                  "query": [
+                    { "key": "slug", "value": "reports" },
+                    { "key": "page_no", "value": "1" },
+                    { "key": "page_size", "value": "10" }
+                  ]
+                },
+                "description": "SECTION: SectionHead → របាយការណ៍ថ្មីៗ.\nSOURCE: landing-data.ts TAIL.reports → categoryRefs('reports', 10). Section pages only."
+              }
+            }
+          ]
+        },
+        {
+          "name": "② Topic head (only /celebrity, /life-style/travel …)",
+          "description": "Rendered ONLY on the nine TOPIC landing pages. Both requests are scoped to the topic's OWN term. Example uses entertainment-celebrity-news (the /celebrity topic) — swap the slug for the topic you're testing.",
+          "item": [
+            {
+              "name": "Topic own feed — lead strip + latest (9 items)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/wp/v2/web/get-article-by-category-slug?slug=entertainment-celebrity-news&page_no=1&page_size=9",
+                  "host": ["{{base_url}}"],
+                  "path": ["wp", "v2", "web", "get-article-by-category-slug"],
+                  "query": [
+                    { "key": "slug", "value": "entertainment-celebrity-news", "description": "the TOPIC's own term slug" },
+                    { "key": "page_no", "value": "1" },
+                    { "key": "page_size", "value": "9" }
+                  ]
+                },
+                "description": "SECTION: TopicHead → ព្រឹត្តិការណ៍ប្រចាំថ្ងៃ lead strip (items 0–3) + ព័ត៌មានថ្មីបំផុត (items 4–8).\nSOURCE: landing-data.ts → categoryRefs(term.slug, 9), sliced 0–4 and 4–9. One fetch feeds two successive windows."
+              }
+            },
+            {
+              "name": "Topic recent (អត្ថបទថ្មីៗ, 10)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/wp/v2/web/get-article-by-category-slug?slug=entertainment-celebrity-news&page_no=1&page_size=10",
+                  "host": ["{{base_url}}"],
+                  "path": ["wp", "v2", "web", "get-article-by-category-slug"],
+                  "query": [
+                    { "key": "slug", "value": "entertainment-celebrity-news" },
+                    { "key": "page_no", "value": "1" },
+                    { "key": "page_size", "value": "10" }
+                  ]
+                },
+                "description": "SECTION: TopicHead → អត្ថបទថ្មីៗ (the column beside the popular list).\nSOURCE: landing-data.ts RECENT → categoryRefs(term.slug, 10). This block used to duplicate the ranked popular list beside it; it is now the topic's own recents."
+              }
+            }
+          ]
+        },
+        {
+          "name": "③ Shared tail + widgets (all 11 landing pages)",
+          "description": "Every landing page — section AND topic — renders this identical tail from HARDWIRED slugs. The block HEADINGS are editorial and often do NOT match the term (e.g. គន្លឹះថែរក្សាសម្ផស្ស heads health-and-beauty). If a tail block looks wrong, check the heading↔slug pairing named on each request. Also: the two feature banners and the team list are the same on every page.",
+          "item": [
+            {
+              "name": "Matika tab 1 — Love (ស្នេហានិងទំនាក់ទំនង)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/wp/v2/web/get-article-by-category-slug?slug=life-style-love-and-relation-news&page_no=1&page_size=4",
+                  "host": ["{{base_url}}"],
+                  "path": ["wp", "v2", "web", "get-article-by-category-slug"],
+                  "query": [
+                    { "key": "slug", "value": "life-style-love-and-relation-news" },
+                    { "key": "page_no", "value": "1" },
+                    { "key": "page_size", "value": "4" }
+                  ]
+                },
+                "description": "SECTION: មាតិការសនិយម tabbed widget, tab 1.\nSOURCE: landing-data.ts MATIKA.slugs[0] → categoryRefs(slug, 4). All four tabs are fetched (they used to be links that navigated away, so 12 of 16 articles were never loaded)."
+              }
+            },
+            {
+              "name": "Matika tab 2 — Health & Beauty",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/wp/v2/web/get-article-by-category-slug?slug=life-style-health-and-beauty-news&page_no=1&page_size=4",
+                  "host": ["{{base_url}}"],
+                  "path": ["wp", "v2", "web", "get-article-by-category-slug"],
+                  "query": [
+                    { "key": "slug", "value": "life-style-health-and-beauty-news" },
+                    { "key": "page_no", "value": "1" },
+                    { "key": "page_size", "value": "4" }
+                  ]
+                },
+                "description": "SECTION: មាតិការសនិយម tab 2.\nSOURCE: landing-data.ts MATIKA.slugs[1]."
+              }
+            },
+            {
+              "name": "Matika tab 3 — Travel",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/wp/v2/web/get-article-by-category-slug?slug=life-style-travel-news&page_no=1&page_size=4",
+                  "host": ["{{base_url}}"],
+                  "path": ["wp", "v2", "web", "get-article-by-category-slug"],
+                  "query": [
+                    { "key": "slug", "value": "life-style-travel-news" },
+                    { "key": "page_no", "value": "1" },
+                    { "key": "page_size", "value": "4" }
+                  ]
+                },
+                "description": "SECTION: មាតិការសនិយម tab 3.\nSOURCE: landing-data.ts MATIKA.slugs[2]."
+              }
+            },
+            {
+              "name": "Matika tab 4 — Life tips",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/wp/v2/web/get-article-by-category-slug?slug=life-style-life-tips-news&page_no=1&page_size=4",
+                  "host": ["{{base_url}}"],
+                  "path": ["wp", "v2", "web", "get-article-by-category-slug"],
+                  "query": [
+                    { "key": "slug", "value": "life-style-life-tips-news" },
+                    { "key": "page_no", "value": "1" },
+                    { "key": "page_size", "value": "4" }
+                  ]
+                },
+                "description": "SECTION: មាតិការសនិយម tab 4.\nSOURCE: landing-data.ts MATIKA.slugs[3]."
+              }
+            },
+            {
+              "name": "Popular ranked list (ប្រធានបទពេញនិយម)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/wp/v2/web/get-article-by-category-slug?slug=all-news&page_no=1&page_size=7",
+                  "host": ["{{base_url}}"],
+                  "path": ["wp", "v2", "web", "get-article-by-category-slug"],
+                  "query": [
+                    { "key": "slug", "value": "all-news" },
+                    { "key": "page_no", "value": "1" },
+                    { "key": "page_size", "value": "7" }
+                  ]
+                },
+                "description": "SECTION: ប្រធានបទពេញនិយម numbered list. Topic pages show all 7; section pages show the first 5.\nSOURCE: landing-data.ts TAIL.popular → categoryRefs('all-news', 7)."
+              }
+            },
+            {
+              "name": "Team block (ក្រុមការងារ)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/wp/v2/users?slug[]=triya-ams&slug[]=chanreth-ams&slug[]=sinvichka-ams&slug[]=chansreypich-ams&slug[]=vanthan-ams&_fields=id,slug,name",
+                  "host": ["{{base_url}}"],
+                  "path": ["wp", "v2", "users"],
+                  "query": [
+                    { "key": "slug[]", "value": "triya-ams" },
+                    { "key": "slug[]", "value": "chanreth-ams" },
+                    { "key": "slug[]", "value": "sinvichka-ams" },
+                    { "key": "slug[]", "value": "chansreypich-ams" },
+                    { "key": "slug[]", "value": "vanthan-ams" },
+                    { "key": "_fields", "value": "id,slug,name", "description": "only names are read; photos are pinned in code (REST can't expose them)" }
+                  ]
+                },
+                "description": "SECTION: ក្រុមការងារ team block (5 editorial picks).\nSOURCE: authors.ts → getTeam. The five slugs are hardcoded (an editorial pick, not per_page=5). WordPress returns them out of order; the app re-sorts to the pinned order. Photos come from code, not this response (every author's Gravatar is the blank silhouette)."
+              }
+            },
+            {
+              "name": "Feature 1 — ចង់ដឹងរឿងគេ (reaction) — meta",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/wp/v2/web/program?id=16508",
+                  "host": ["{{base_url}}"],
+                  "path": ["wp", "v2", "web", "program"],
+                  "query": [
+                    { "key": "id", "value": "16508", "description": "reaction program POST id" }
+                  ]
+                },
+                "description": "SECTION: first ProgramFeature banner (ចង់ដឹងរឿងគេ).\nSOURCE: landing-data.ts FEATURES[0] → web/program?id=16508.\nNOTE: the banner ART is pinned in code (an Obsok-branded crop), NOT this response's backdrop — the pairing isn't derivable from any endpoint."
+              }
+            },
+            {
+              "name": "Feature 1 — ចង់ដឹងរឿងគេ (reaction) — episodes rail",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/wp/v2/web/tv-show-episodes?tv_show=16518&page_no=1&page_size=200",
+                  "host": ["{{base_url}}"],
+                  "path": ["wp", "v2", "web", "tv-show-episodes"],
+                  "query": [
+                    { "key": "tv_show", "value": "16518", "description": "reaction tv_show id (≠ its post id 16508)" },
+                    { "key": "page_no", "value": "1" },
+                    { "key": "page_size", "value": "200" }
+                  ]
+                },
+                "description": "SECTION: the episode rail below the ចង់ដឹងរឿងគេ banner (all episodes, ~44).\nSOURCE: landing-data.ts getFeature → fetchEpisodeCards('reaction', 16518)."
+              }
+            },
+            {
+              "name": "Feature 2 — បើកសោជីវិត (unlock-the-life) — meta",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/wp/v2/web/program?id=14428",
+                  "host": ["{{base_url}}"],
+                  "path": ["wp", "v2", "web", "program"],
+                  "query": [
+                    { "key": "id", "value": "14428", "description": "unlock-the-life program POST id" }
+                  ]
+                },
+                "description": "SECTION: second ProgramFeature banner (បើកសោជីវិត).\nSOURCE: landing-data.ts FEATURES[1] → web/program?id=14428."
+              }
+            },
+            {
+              "name": "Feature 2 — បើកសោជីវិត (unlock-the-life) — episodes rail",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/wp/v2/web/tv-show-episodes?tv_show=14288&page_no=1&page_size=200",
+                  "host": ["{{base_url}}"],
+                  "path": ["wp", "v2", "web", "tv-show-episodes"],
+                  "query": [
+                    { "key": "tv_show", "value": "14288", "description": "unlock-the-life tv_show id (≠ post id 14428)" },
+                    { "key": "page_no", "value": "1" },
+                    { "key": "page_size", "value": "200" }
+                  ]
+                },
+                "description": "SECTION: the episode rail below the បើកសោជីវិត banner (~43).\nSOURCE: landing-data.ts getFeature → fetchEpisodeCards('unlock-the-life', 14288)."
+              }
+            },
+            {
+              "name": "Tail — ចំណាប់អារម្មណ៍ (interest, all-news)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/wp/v2/web/get-article-by-category-slug?slug=all-news&page_no=1&page_size=4",
+                  "host": ["{{base_url}}"],
+                  "path": ["wp", "v2", "web", "get-article-by-category-slug"],
+                  "query": [
+                    { "key": "slug", "value": "all-news" },
+                    { "key": "page_no", "value": "1" },
+                    { "key": "page_size", "value": "4" }
+                  ]
+                },
+                "description": "SECTION: tail block ចំណាប់អារម្មណ៍របស់ប្រិយមិត្ត. Section = 2×2; topic = one row.\nSOURCE: landing-data.ts TAIL.interest → categoryRefs('all-news', 4)."
+              }
+            },
+            {
+              "name": "Tail — បំណិនជីវិត (lifeTips)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/wp/v2/web/get-article-by-category-slug?slug=life-style-life-tips-news&page_no=1&page_size=4",
+                  "host": ["{{base_url}}"],
+                  "path": ["wp", "v2", "web", "get-article-by-category-slug"],
+                  "query": [
+                    { "key": "slug", "value": "life-style-life-tips-news" },
+                    { "key": "page_no", "value": "1" },
+                    { "key": "page_size", "value": "4" }
+                  ]
+                },
+                "description": "SECTION: tail block បំណិនជីវិត.\nSOURCE: landing-data.ts TAIL.lifeTips."
+              }
+            },
+            {
+              "name": "Tail — គន្លឹះថែរក្សាសម្ផស្ស (skincare→health-and-beauty)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/wp/v2/web/get-article-by-category-slug?slug=life-style-health-and-beauty-news&page_no=1&page_size=7",
+                  "host": ["{{base_url}}"],
+                  "path": ["wp", "v2", "web", "get-article-by-category-slug"],
+                  "query": [
+                    { "key": "slug", "value": "life-style-health-and-beauty-news" },
+                    { "key": "page_no", "value": "1" },
+                    { "key": "page_size", "value": "7" }
+                  ]
+                },
+                "description": "SECTION: tail ranked block គន្លឹះថែរក្សាសម្ផស្ស.\nSOURCE: landing-data.ts TAIL.skincare. DEBUG: heading≠term (term is named សុខភាពនិងសម្រស់) — must come from life-style-health-and-beauty-news."
+              }
+            },
+            {
+              "name": "Tail — ស្នេហានិងទំនាក់ទំនង (love)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/wp/v2/web/get-article-by-category-slug?slug=life-style-love-and-relation-news&page_no=1&page_size=3",
+                  "host": ["{{base_url}}"],
+                  "path": ["wp", "v2", "web", "get-article-by-category-slug"],
+                  "query": [
+                    { "key": "slug", "value": "life-style-love-and-relation-news" },
+                    { "key": "page_no", "value": "1" },
+                    { "key": "page_size", "value": "3" }
+                  ]
+                },
+                "description": "SECTION: tail block ស្នេហានិងទំនាក់ទំនង.\nSOURCE: landing-data.ts TAIL.love."
+              }
+            },
+            {
+              "name": "Tail — ទេសចរណ៍ (travel)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/wp/v2/web/get-article-by-category-slug?slug=life-style-travel-news&page_no=1&page_size=3",
+                  "host": ["{{base_url}}"],
+                  "path": ["wp", "v2", "web", "get-article-by-category-slug"],
+                  "query": [
+                    { "key": "slug", "value": "life-style-travel-news" },
+                    { "key": "page_no", "value": "1" },
+                    { "key": "page_size", "value": "3" }
+                  ]
+                },
+                "description": "SECTION: tail block ទេសចរណ៍.\nSOURCE: landing-data.ts TAIL.travel."
+              }
+            },
+            {
+              "name": "Tail — ភាពយន្ត (movies→movie-and-music)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/wp/v2/web/get-article-by-category-slug?slug=entertainment-movie-and-music-news&page_no=1&page_size=7",
+                  "host": ["{{base_url}}"],
+                  "path": ["wp", "v2", "web", "get-article-by-category-slug"],
+                  "query": [
+                    { "key": "slug", "value": "entertainment-movie-and-music-news" },
+                    { "key": "page_no", "value": "1" },
+                    { "key": "page_size", "value": "7" }
+                  ]
+                },
+                "description": "SECTION: tail ranked block ភាពយន្ត.\nSOURCE: landing-data.ts TAIL.movies. DEBUG: heading≠term — must come from entertainment-movie-and-music-news."
+              }
+            },
+            {
+              "name": "Tail — ព័ត៌មានប្លែកៗ (strange)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/wp/v2/web/get-article-by-category-slug?slug=entertainment-strange-news&page_no=1&page_size=5",
+                  "host": ["{{base_url}}"],
+                  "path": ["wp", "v2", "web", "get-article-by-category-slug"],
+                  "query": [
+                    { "key": "slug", "value": "entertainment-strange-news" },
+                    { "key": "page_no", "value": "1" },
+                    { "key": "page_size", "value": "5" }
+                  ]
+                },
+                "description": "SECTION: tail block ព័ត៌មានប្លែកៗ.\nSOURCE: landing-data.ts TAIL.strange."
+              }
+            },
+            {
+              "name": "Tail — អត្ថបទកម្សាន្ត (entertainment)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/wp/v2/web/get-article-by-category-slug?slug=entertainment-news&page_no=1&page_size=3",
+                  "host": ["{{base_url}}"],
+                  "path": ["wp", "v2", "web", "get-article-by-category-slug"],
+                  "query": [
+                    { "key": "slug", "value": "entertainment-news" },
+                    { "key": "page_no", "value": "1" },
+                    { "key": "page_size", "value": "3" }
+                  ]
+                },
+                "description": "SECTION: tail block អត្ថបទកម្សាន្ត.\nSOURCE: landing-data.ts TAIL.entertainment."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "📃 Static pages ( /contact, /jobs, /privacy-policy … )",
+      "description": "Route: src/app/[...path]/page.tsx (same catch-all as landing pages; resolves here when the path isn't one of the 11 landings). Data: src/lib/pages.ts → getStaticPage.\n\nSeven whitelisted WP pages: advertising, contact, question, jobs, privacy-policy, terms-conditions, cookies. Two requests back the lot: an index (path→id) then the page body.\n\nGOTCHA: the index is keyed on the page's PERMALINK, not its slug — /terms-conditions/ is served by a page whose slug is Khmer, so ?slug=terms-conditions returns [].",
+      "item": [
+        {
+          "name": "Page index (path → id)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/pages?per_page=100&_fields=id,slug,link",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "pages"],
+              "query": [
+                { "key": "per_page", "value": "100" },
+                { "key": "_fields", "value": "id,slug,link", "description": "link is the permalink the app keys on" }
+              ]
+            },
+            "description": "SECTION: resolves which WP page id serves a given /path.\nSOURCE: pages.ts → getPageIndex. Only the 7 whitelisted paths are actually served (the CMS holds ~55 pages, most of them drafts/ad mockups)."
+          }
+        },
+        {
+          "name": "Page detail (title + body)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/pages/{{page_id}}?_fields=id,title,content",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "pages", "{{page_id}}"],
+              "query": [
+                { "key": "_fields", "value": "id,title,content" }
+              ]
+            },
+            "description": "SECTION: the static page's <h1> + body.\nSOURCE: pages.ts → getStaticPage. Set page_id from the Page index (e.g. the id whose link ends /contact/). content.rendered is Gutenberg HTML, same shape as an article body."
+          }
+        }
+      ]
+    },
+    {
+      "name": "📺 Program overview ( /program/[slug] )",
+      "description": "Route: src/app/program/[slug]/(overview)/page.tsx. Data: programs.ts → getProgram + articles.ts → categoryRefs ×2 + home-data.ts → getHomeFeed + getFeaturedPrograms (static).\n\nThe UNIQUE calls are below. Everything from DailyEventsSection down is the HOMEPAGE'S OWN FURNITURE — the same 8 calls as the '🏠 Homepage' folder (getHomeFeed) plus the static poster carousel. Not repeated here.\n\nExample values use អផ្សុក (obsok): post id 14562, tv_show id 14512. Swap program_post_id / program_show_id for another show (id table in src/lib/programs.ts). REMEMBER: a program's post id and tv_show id are DIFFERENT numbers.",
+      "item": [
+        {
+          "name": "Program meta (hero, about, poster, schedule)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/program?id={{program_post_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "program"],
+              "query": [
+                { "key": "id", "value": "{{program_post_id}}", "description": "the program POST id (movie/tv_show), NOT the tv_show id" }
+              ]
+            },
+            "description": "SECTION: ProgramHero + ProgramAbout (title, description, poster, backdrop, year, schedule).\nSOURCE: programs.ts → fetchProgramMeta → web/program?id=<postId>.\nGoes through our own endpoint (not core wp/v2/movie) because the backdrop lives in Vodi post meta core REST won't expose. GOTCHA: `schedule` is the broadcast slot text, stored in MasVideos' run_time field — it is NOT a duration."
+          }
+        },
+        {
+          "name": "Program episodes (carousel + season browser)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/tv-show-episodes?tv_show={{program_show_id}}&page_no=1&page_size=200",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "tv-show-episodes"],
+              "query": [
+                { "key": "tv_show", "value": "{{program_show_id}}", "description": "the tv_show id (≠ program_post_id)" },
+                { "key": "page_no", "value": "1" },
+                { "key": "page_size", "value": "200" }
+              ]
+            },
+            "description": "SECTION: EpisodeCarousel (newest 18) + SeasonTabs (grouped by season).\nSOURCE: programs.ts → getProgram → fetchEpisodeCards(slug, showId, 18) + fetchSeasonCards (one shared, cached fetch).\nThe upstream orders by POST DATE, not episode order, so the app re-sorts by the episode-number label. If the carousel order looks wrong, that sort (episodes.ts compareEpisodes) is where to look — not this raw response."
+          }
+        },
+        {
+          "name": "ProgramNews — Entertainment (3)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/get-article-by-category-slug?slug=entertainment-news&page_no=1&page_size=3",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "get-article-by-category-slug"],
+              "query": [
+                { "key": "slug", "value": "entertainment-news" },
+                { "key": "page_no", "value": "1" },
+                { "key": "page_size", "value": "3" }
+              ]
+            },
+            "description": "SECTION: ProgramNews left column.\nSOURCE: program page → categoryRefs('entertainment-news', 3)."
+          }
+        },
+        {
+          "name": "ProgramNews — Mixed (all-news, 3)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/get-article-by-category-slug?slug=all-news&page_no=1&page_size=3",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "get-article-by-category-slug"],
+              "query": [
+                { "key": "slug", "value": "all-news" },
+                { "key": "page_no", "value": "1" },
+                { "key": "page_size", "value": "3" }
+              ]
+            },
+            "description": "SECTION: ProgramNews right column.\nSOURCE: program page → categoryRefs('all-news', 3).\n+ Below this: the entire Homepage feed (see 🏠 Homepage folder) renders on the program page too."
+          }
+        }
+      ]
+    },
+    {
+      "name": "▶️ Episode page ( /program/[slug]/[episode] )",
+      "description": "Route: src/app/program/[slug]/[episode]/page.tsx. Data: episode.ts → getEpisodePage + categoryRefs ×2 + getHomeFeed + getFeaturedPrograms (static).\n\nUNIQUE calls below. Like the program page, everything from DailyEventsSection down is the Homepage feed (see 🏠 Homepage). Example uses obsok (tv_show 14512); set episode_id from the show-episode-list response.",
+      "item": [
+        {
+          "name": "Show episode list (identity, prev/next, season grid)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/tv-show-episodes?tv_show={{program_show_id}}&page_no=1&page_size=200",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "tv-show-episodes"],
+              "query": [
+                { "key": "tv_show", "value": "{{program_show_id}}" },
+                { "key": "page_no", "value": "1" },
+                { "key": "page_size", "value": "200" }
+              ]
+            },
+            "description": "SECTION: resolves the episode from its URL slug, and feeds prev/next + the season browser.\nSOURCE: episode.ts → getEpisodePage → fetchShowEpisodes(showId). ONE cached fetch backs the episode, its neighbours, and the grid — prev/next is index ±1 in this list."
+          }
+        },
+        {
+          "name": "Episode detail (video source + metadata)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/episode?id={{episode_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "episode"],
+              "query": [
+                { "key": "id", "value": "{{episode_id}}", "description": "episode post id — grab from the Show episode list (data[].id)" }
+              ]
+            },
+            "description": "SECTION: EpisodeStage (the player) + EpisodeMeta.\nSOURCE: episode.ts → fetchDetail. Single-object envelope { status:'OK', data:{…} }.\ndata: { id, title, episode_number, run_time, release_date (Unix, midnight Phnom Penh), tv_show_id, tv_show_title, season_id, season_name, post_thumbnail, video:{choice,url,attachment,embed} }.\nGOTCHAS: format release_date in Asia/Phnom_Penh (Vodi prints it a day early); prefer video.url over the stale video.embed."
+          }
+        },
+        {
+          "name": "Episode excerpt (core — description box)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/episode/{{episode_id}}?_fields=excerpt",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "episode", "{{episode_id}}"],
+              "query": [
+                { "key": "_fields", "value": "excerpt", "description": "the ONE field web/episode doesn't carry" }
+              ]
+            },
+            "description": "SECTION: the Description box under the player.\nSOURCE: episode.ts → fetchExcerpt (WordPress CORE episode CPT). '' for the many episodes with no excerpt (box omitted)."
+          }
+        },
+        {
+          "name": "Vimeo run-time (external oEmbed)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://vimeo.com/api/oembed.json?url={{episode_video_url}}",
+              "protocol": "https",
+              "host": ["vimeo", "com"],
+              "path": ["api", "oembed.json"],
+              "query": [
+                { "key": "url", "value": "{{episode_video_url}}", "description": "the video.url from Episode detail (URL-encoded)" }
+              ]
+            },
+            "description": "SECTION: the run-time shown in EpisodeMeta.\nSOURCE: episode.ts → fetchVimeoRunTime. Vimeo's public oEmbed (no auth) is authoritative on length; WordPress's _episode_run_time is wrong on ~half the episodes and is only the fallback. NOT a WordPress call — it hits vimeo.com directly."
+          }
+        },
+        {
+          "name": "ProgramNews — Entertainment (3)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/get-article-by-category-slug?slug=entertainment-news&page_no=1&page_size=3",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "get-article-by-category-slug"],
+              "query": [
+                { "key": "slug", "value": "entertainment-news" },
+                { "key": "page_no", "value": "1" },
+                { "key": "page_size", "value": "3" }
+              ]
+            },
+            "description": "SECTION: ProgramNews left column (same as on the program overview).\nSOURCE: episode page → categoryRefs('entertainment-news', 3)."
+          }
+        },
+        {
+          "name": "ProgramNews — Mixed (all-news, 3)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/get-article-by-category-slug?slug=all-news&page_no=1&page_size=3",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "get-article-by-category-slug"],
+              "query": [
+                { "key": "slug", "value": "all-news" },
+                { "key": "page_no", "value": "1" },
+                { "key": "page_size", "value": "3" }
+              ]
+            },
+            "description": "SECTION: ProgramNews right column.\nSOURCE: episode page → categoryRefs('all-news', 3).\n+ Below: the whole Homepage feed (see 🏠 Homepage folder)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "🎬 All episodes ( /program/[slug]/episodes )",
+      "description": "Route: src/app/program/[slug]/episodes/page.tsx. Data: episodes.ts → fetchShowEpisodes → groupSeasons. The 'មើលទាំងអស់' link from a season browser lands here.\n\nOne endpoint, paginated: the app pulls page_no=1 first, reads total_page, then fetches the rest (page_size=200, capped at 10 pages) and sorts the whole show by episode-number label.",
+      "item": [
+        {
+          "name": "All episodes of a show (page 1)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/tv-show-episodes?tv_show={{program_show_id}}&page_no=1&page_size=200",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "tv-show-episodes"],
+              "query": [
+                { "key": "tv_show", "value": "{{program_show_id}}" },
+                { "key": "page_no", "value": "1" },
+                { "key": "page_size", "value": "200" }
+              ]
+            },
+            "description": "SECTION: the full SeasonGrid list (e.g. daily-feed has 617).\nSOURCE: episodes.ts → fetchShowEpisodes. Read total_page in the response; increment page_no to fetch subsequent pages (the app fetches them all, up to 10 pages)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "👥 Author ( /author, /author/[slug] )",
+      "description": "Routes: src/app/author/page.tsx (index) and src/app/author/[...path]/page.tsx (archive). Data: authors.ts + wp-core.ts.\n\nSECTION → REQUEST\n- /author index grid → All authors\n- /author/<slug> header (name, bio) → Author by slug\n- /author/<slug> main list + pagination → Author's posts (core)\n- /author/<slug> sidebar → 3 category feeds (all-news / reports / entertainment-news, each page_size=3)",
+      "item": [
+        {
+          "name": "All authors (/author index)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/users?per_page=100&_fields=id,slug,name,description,avatar_urls",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "users"],
+              "query": [
+                { "key": "per_page", "value": "100" },
+                { "key": "_fields", "value": "id,slug,name,description,avatar_urls" }
+              ]
+            },
+            "description": "SECTION: the /author index grid.\nSOURCE: authors.ts → getAuthors. WordPress only lists accounts with published content, so this is exactly the set of archives worth linking. avatar_urls are the blank Gravatar for every author (real portraits aren't in REST)."
+          }
+        },
+        {
+          "name": "Author by slug (archive header)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/users?slug={{author_slug}}&_fields=id,slug,name,description,avatar_urls",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "users"],
+              "query": [
+                { "key": "slug", "value": "{{author_slug}}" },
+                { "key": "_fields", "value": "id,slug,name,description,avatar_urls" }
+              ]
+            },
+            "description": "SECTION: /author/<slug> title band + bio.\nSOURCE: authors.ts → getAuthorBySlug. Returns an array; the app takes [0]. Read the `id` here for the posts request below."
+          }
+        },
+        {
+          "name": "Author's posts (core, paginated)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/posts?author={{author_id}}&page=1&per_page=10&_embed=wp:featuredmedia,wp:term&_fields=id,slug,date,title,_links,_embedded",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "posts"],
+              "query": [
+                { "key": "author", "value": "{{author_id}}", "description": "the author's user id (from Author by slug)" },
+                { "key": "page", "value": "1", "description": "the /page/N URL segment" },
+                { "key": "per_page", "value": "10" },
+                { "key": "_embed", "value": "wp:featuredmedia,wp:term" },
+                { "key": "_fields", "value": "id,slug,date,title,_links,_embedded" }
+              ]
+            },
+            "description": "SECTION: the author's article list + pagination.\nSOURCE: wp-core.ts → fetchAuthorPosts. Uses WordPress CORE posts (get-articles can't filter by author). The page count comes from the X-WP-TotalPages RESPONSE HEADER, not the body — check Headers to see how many pages Pagination will show."
+          }
+        },
+        {
+          "name": "Sidebar — Recent (all-news, 3)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/get-article-by-category-slug?slug=all-news&page_no=1&page_size=3",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "get-article-by-category-slug"],
+              "query": [
+                { "key": "slug", "value": "all-news" },
+                { "key": "page_no", "value": "1" },
+                { "key": "page_size", "value": "3" }
+              ]
+            },
+            "description": "SECTION: author sidebar widget អត្ថបទថ្មីៗ.\nSOURCE: author page → categoryRefs('all-news', 3)."
+          }
+        },
+        {
+          "name": "Sidebar — Reports (3)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/get-article-by-category-slug?slug=reports&page_no=1&page_size=3",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "get-article-by-category-slug"],
+              "query": [
+                { "key": "slug", "value": "reports" },
+                { "key": "page_no", "value": "1" },
+                { "key": "page_size", "value": "3" }
+              ]
+            },
+            "description": "SECTION: author sidebar widget របាយការណ៍.\nSOURCE: author page → categoryRefs('reports', 3)."
+          }
+        },
+        {
+          "name": "Sidebar — Entertainment (3)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/wp/v2/web/get-article-by-category-slug?slug=entertainment-news&page_no=1&page_size=3",
+              "host": ["{{base_url}}"],
+              "path": ["wp", "v2", "web", "get-article-by-category-slug"],
+              "query": [
+                { "key": "slug", "value": "entertainment-news" },
+                { "key": "page_no", "value": "1" },
+                { "key": "page_size", "value": "3" }
+              ]
+            },
+            "description": "SECTION: author sidebar widget អត្ថបទកម្សាន្ត.\nSOURCE: author page → categoryRefs('entertainment-news', 3)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "⚙️ Frontend route handlers (Next.js, not WordPress)",
+      "description": "Served by the Next.js app itself (src/app/api/**), against {{frontend_url}} — NOT WordPress.",
+      "item": [
+        {
+          "name": "Revalidate (on-demand cache invalidation)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{frontend_url}}/api/revalidate?secret={{revalidate_secret}}&tag=articles",
+              "host": ["{{frontend_url}}"],
+              "path": ["api", "revalidate"],
+              "query": [
+                { "key": "secret", "value": "{{revalidate_secret}}", "description": "must equal REVALIDATE_SECRET or 401" },
+                { "key": "tag", "value": "articles", "description": "cache tag to invalidate (defaults to 'articles')" }
+              ]
+            },
+            "description": "SOURCE: src/app/api/revalidate/route.ts. POST only. Point a WP 'post published/updated' webhook here so fresh content appears without waiting out ISR (get-articles 300s, article detail 3600s, home feed 120s).\nTags: articles, home, article:<slug>, category:<slug>, categories, episodes, episode:<id>, tv-show:<id>, program, program:<slug>, featured-program, authors, comments:<id>, pages, daily-events."
+          }
+        }
+      ]
+    }
+  ]
+}

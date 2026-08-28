@@ -1,0 +1,43 @@
+{
+  "name": "ams-education-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "panda codegen && next dev --experimental-https",
+    "build": "panda codegen && next build",
+    "start": "next start",
+    "prepare": "panda codegen",
+    "lint": "eslint",
+    "sync:promos": "node scripts/sync-promos.mjs"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.101.4",
+    "@tiptap/extension-image": "^3.29.2",
+    "@tiptap/react": "^3.29.2",
+    "@tiptap/starter-kit": "^3.29.2",
+    "@wordpress/block-editor": "^16.1.0",
+    "@wordpress/block-library": "^10.3.0",
+    "@wordpress/blocks": "^15.25.0",
+    "@wordpress/components": "^38.0.0",
+    "@wordpress/data": "^10.52.0",
+    "@wordpress/format-library": "^5.52.0",
+    "@wordpress/hooks": "^4.52.0",
+    "@wordpress/i18n": "^6.25.0",
+    "@wordpress/keyboard-shortcuts": "^5.52.0",
+    "embla-carousel-autoplay": "^8.6.0",
+    "embla-carousel-react": "^8.6.0",
+    "next": "16.2.9",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@pandacss/dev": "^1.11.4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "babel-plugin-react-compiler": "1.0.0",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.9",
+    "typescript": "^5"
+  }
+}

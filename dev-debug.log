@@ -1,0 +1,24 @@
+npm notice run ams-education-frontend@0.1.0 dev
+npm notice run panda codegen && next dev --experimental-https
+✔️ `src/styled-system/css`: the css function to author styles
+✔️ `src/styled-system/tokens`: the css variables and js function to query your tokens
+✔️ `src/styled-system/patterns`: functions to implement and apply common layout patterns
+✔️ `src/styled-system/jsx`: styled jsx elements for react
+
+
+⚠ Self-signed certificates are currently an experimental feature, use with caution.
+  Using already generated self signed certificate
+▲ Next.js 16.2.9 (Turbopack)
+- Local:         https://localhost:3050
+- Network:       https://172.30.30.206:3050
+- Environments: .env.local
+✓ Ready in 727ms
+⨯ Another next dev server is already running.
+
+- Local:        http://localhost:3000
+- PID:          16516
+- Dir:          D:\ASM\ams-education-frontend
+- Log:          .next\dev\logs\next-development.log
+
+Run taskkill /PID 16516 /F to stop it.
+[?25h

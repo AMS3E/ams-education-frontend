@@ -1,0 +1,87 @@
+/* Overrides for @wordpress/block-editor's own stylesheets.
+ *
+ * WHY A PLAIN .css FILE INSTEAD OF Panda's css():
+ * Panda emits everything into `@layer utilities`. WordPress's stylesheets are
+ * UNLAYERED, and in the CSS cascade an unlayered rule beats a layered one no
+ * matter how specific the layered one is — so `css({ "& .block-editor-block-toolbar": … })`
+ * loses to a plain `.block-editor-block-toolbar { … }` every time. Verified in
+ * the browser: the Panda rule was emitted, matched, and still lost.
+ *
+ * This file is imported AFTER the WordPress stylesheets in GutenbergEditor.tsx,
+ * so it is unlayered too and wins on order at equal specificity.
+ * Keep it small, and keep every rule scoped to .ams-editor-band. */
+
+/* WP gives the block toolbar `overflow-x: auto` for narrow editor headers. In
+ * our band there is room, and that second scroller rendered a permanent
+ * scrollbar track under the controls (content measured 348px in a 305px box).
+ * Our own slot keeps the scrolling for genuinely narrow windows. */
+/* The selector matches WP's own chain plus our band, i.e. (0,3,0) against its
+ * (0,2,0). Specificity rather than source order, because Turbopack emits the
+ * node_modules stylesheets AFTER this file — verified in the browser, where an
+ * equal-specificity rule lost even though it is imported last. */
+.ams-editor-band .block-editor-block-contextual-toolbar .block-editor-block-toolbar,
+.ams-editor-band .block-editor-block-toolbar {
+  /* The SHORTHAND, deliberately. WP sets `overflow: auto hidden`, and per spec
+   * `overflow-x: visible` computes back to `auto` whenever overflow-y is not
+   * visible — so overriding only the x axis looks like the override never
+   * applied (CDP shows it winning; getComputedStyle still says `auto`). Both
+   * axes have to go visible together. */
+  overflow: visible;
+  border: none;
+  background: transparent;
+  width: auto;
+  flex-grow: 0;
+}
+
+/* WP's toolbar assumes it sits in a full-width header with its own borders;
+ * inside our band those borders double up against ours. */
+.ams-editor-band .components-accessible-toolbar,
+.ams-editor-band .components-toolbar,
+.ams-editor-band .components-toolbar-group {
+  border: none;
+  background: transparent;
+}
+
+/* THE BLACK BOX around the whole body. It is the browser's DEFAULT FOCUS RING
+ * (`outline: 1px auto rgb(16,16,16)`, measured) on .block-editor-writing-flow —
+ * that element takes focus when you click into text, because it is the
+ * multi-block-selection container. It wrapped every paragraph AND the images,
+ * which is why it looked like the body had a border while an image block on
+ * its own looked correctly highlighted.
+ *
+ * wp-admin never shows it because edit-post's stylesheet resets it, and we do
+ * not load edit-post. Selection is communicated per BLOCK instead, below. */
+.editor-styles-wrapper .block-editor-writing-flow:focus,
+.editor-styles-wrapper .block-editor-writing-flow:focus-visible {
+  outline: none;
+}
+
+/* NO custom selected-block outline. There used to be one here — a 1px warm-grey
+ * ring at 4px offset on every .is-selected block — added because text blocks
+ * "looked unselectable" next to images. That was a misreading of Gutenberg,
+ * and measurement settled it:
+ *
+ *   image block selected     -> ::after content ""   , outline rgb(0,124,186) 2px
+ *   paragraph block selected -> ::after content none , no outline at all
+ *
+ * Gutenberg draws the blue ring on a ::after pseudo-element and deliberately
+ * does NOT render it for text blocks, because a text block already shows its
+ * selection with the CARET. The blue box is the "block selected, not editing"
+ * state — press Escape inside a paragraph and it appears. Images get it
+ * immediately only because they have no caret to show.
+ *
+ * So the ring was inventing a state WordPress does not have, and it was the
+ * ONLY thing drawn on a selected paragraph — which is why the editor looked
+ * like it had a stray brown border. Deleted; WP's own behaviour stands.
+ * (--wp-admin-theme-color resolves fine here, #007cba — that was never the
+ * problem, despite a plausible first guess that it was.) */
+
+/* Anything that scrolls a block into view — Tab focus, the editor's own
+ * scroll-into-view, an automated click — parks it at the very top of the
+ * viewport, which is now UNDER the sticky band (56px app bar + 56px band) and
+ * under the floating block toolbar that sits ~48px above the block. Without
+ * this, a keyboard user Tabbing through blocks loses the one they just reached.
+ * 160px = 112 chrome + toolbar + a little air. */
+.editor-styles-wrapper .block-editor-block-list__block {
+  scroll-margin-top: 160px;
+}

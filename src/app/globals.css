@@ -1,0 +1,50 @@
+@layer reset, base, tokens, recipes, utilities;
+
+/* Base styles Panda's preflight doesn't cover. `tokens` (theme CSS vars),
+   `recipes`, and `utilities` (css() output) are injected by Panda into their
+   respective layers, all of which win over `base`. */
+@layer base {
+  /* Tells the browser which way the page leans, so NATIVE UI follows the theme:
+     <select> popups, scrollbars, date pickers, spinners and form autofill.
+     Without it a dark admin still drops a white menu when you open a select —
+     the one part of the theme CSS variables cannot reach. */
+  :root {
+    color-scheme: light;
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+  }
+
+  body {
+    /* Battambang renders both Khmer and Latin/numbers; system fonts are just
+       fallbacks while the webfont loads. */
+    font-family: var(--font-battambang), "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  html,
+  body {
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  img {
+    border-radius: inherit;
+  }
+
+  ::-webkit-scrollbar {
+    height: 8px;
+    width: 8px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: rgba(120, 120, 130, 0.4);
+    border-radius: 0;
+  }
+}
