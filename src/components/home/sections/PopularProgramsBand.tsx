@@ -7,7 +7,7 @@ import { rowLink } from "./styles";
 import { programHref } from "@/lib/programs";
 
 /** Full-width dark band: a "popular movies" ranking on the left and the
- *  "AMS Infotainment special programs" grid on the right.
+ *  "AMS Education special programs" grid on the right.
  *
  *  Two lists, not one: live runs 9 in the ranking and 8 in the grid. */
 export default function PopularProgramsBand({

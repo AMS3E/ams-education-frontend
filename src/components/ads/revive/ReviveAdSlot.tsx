@@ -30,7 +30,7 @@ export default function ReviveAdSlot({ zone }: { zone: ReviveZone }) {
           style={{ display: "block", width: zone.width, height: zone.height }}
         />
       </div>
-      <Script id="revive-async-js" async src="//ads.amscloud.cc/www/delivery/asyncjs.php" strategy="afterInteractive" />
+      <Script id="revive-async-js" async src="//ads.ams.com.kh/www/delivery/asyncjs.php" strategy="afterInteractive" />
     </div>
   );
 }

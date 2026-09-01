@@ -34,5 +34,5 @@ export default async function AdminArticleEditorPage({
   }
 
   if (!post) notFound();
-  return <ArticleEditor mode="edit" post={post} categories={categories} templates={templates} />;
+  return <ArticleEditor post={post} categories={categories} templates={templates} />;
 }

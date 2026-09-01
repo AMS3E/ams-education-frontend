@@ -10,7 +10,7 @@
 import { cookies } from "next/headers";
 import { SESSION_COOKIE } from "@/lib/auth/constants";
 
-const BASE = process.env.API_BASE_URL ?? "https://infotainment.ams.com.kh/wp-json";
+const BASE = process.env.API_BASE_URL ?? "https://education.ams.com.kh/wp-json";
 
 export interface UploadResult {
   ok: boolean;
@@ -39,7 +39,7 @@ function asciiFilename(name: string): string {
  *  over that limit comes back as "WordPress rejected the upload (413)", and
  *  raising it is an aaPanel setting, not code. */
 const MAX_BYTES: Record<string, number> = {
-  image: 10 * 1024 * 1024,
+  image: 20 * 1024 * 1024,
   audio: 50 * 1024 * 1024,
   video: 300 * 1024 * 1024,
 };

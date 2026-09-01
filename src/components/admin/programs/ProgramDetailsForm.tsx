@@ -3,21 +3,24 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { css } from "@/styled-system/css";
 import { ac } from "../tokens";
-import { Icon } from "../icons";
-import { Dropdown } from "../Dropdown";
 import { BentoCard } from "../ui";
 import { useProgramEdit, type Collector } from "./ProgramEditContext";
 import type { ProgramPayload } from "@/lib/admin/program-actions";
 import MediaPicker from "../MediaPicker";
 
-// The "Details" tab body: what the program IS (metadata + artwork + its main
-// video). In edit mode the fields are controlled state seeded from the real
-// program in ProgramEditContext; the form registers a collector so the top
-// bar's Save (which lives in the persistent [id] layout) can snapshot it.
-// A tv_show renders no Video source card (it has no video of its own —
-// episodes carry the videos). In `create` mode there is no provider — the
-// page passes `onCollect` instead and the empty form registers through that
-// (see NewProgramView).
+// The "Details" tab body: what the program IS (metadata + artwork). In edit
+// mode the fields are controlled state seeded from the real program in
+// ProgramEditContext; the form registers a collector so the top bar's Save
+// (which lives in the persistent [id] layout) can snapshot it. In `create`
+// mode there is no provider — the page passes `onCollect` instead and the
+// empty form registers through that (see NewProgramView).
+//
+// Cut on the owner's request (2026-08-27), alongside the fields listed in
+// docs/session-log.md S47: the Video source card (editors never touch it —
+// episodes carry the videos; the meta stays in WP, just not editable here)
+// and the read-only "WordPress page layout" view of post_content. Save has
+// never written post_content and now never writes the _movie_* video meta
+// either, so both survive unharmed in WordPress.
 
 function FormCard({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -33,14 +36,6 @@ function FormCard({ title, children }: { title: string; children: ReactNode }) {
 const label = css({ fontSize: "12px", marginBottom: "6px" });
 const hint = css({ fontSize: "11.5px", marginTop: "6px" });
 
-/** _movie_choice value ↔ dropdown label. Unset ("") edits as URL, the norm. */
-const METHODS = [
-  { value: "movie_url", label: "URL" },
-  { value: "movie_file", label: "Upload file" },
-  { value: "movie_embed", label: "Embed code" },
-] as const;
-const methodLabel = (choice: string) => METHODS.find((m) => m.value === choice)?.label ?? "URL";
-
 export default function ProgramDetailsForm({
   create = false,
   onCollect,
@@ -52,14 +47,10 @@ export default function ProgramDetailsForm({
   const edit = useProgramEdit();
   const program = create ? null : edit?.program ?? null;
 
-  const [methodOpen, setMethodOpen] = useState(false);
   const [title, setTitle] = useState(program?.title ?? "");
   const [desc, setDesc] = useState(program?.description ?? "");
   const [release, setRelease] = useState(program?.releaseDate ?? "");
   const [schedule, setSchedule] = useState(program?.schedule ?? "");
-  const [choice, setChoice] = useState(program?.video?.choice || "movie_url");
-  const [url, setUrl] = useState(program?.video?.url ?? "");
-  const [embed, setEmbed] = useState(program?.video?.embed ?? "");
 
   // Artwork via the media picker. The backdrop has no thumb on load (it isn't
   // the featured image), so its preview starts empty and fills once picked.
@@ -78,8 +69,6 @@ export default function ProgramDetailsForm({
     const collect: Collector = () => {
       if (!title.trim()) return "Give the program a title first.";
       const payload: ProgramPayload = { title, description: desc, releaseDate: release, schedule, posterId, backdropId };
-      // New programs are movies, and movies carry the video source.
-      if (create || program?.video) payload.video = { choice, url: url.trim(), embed };
       return payload;
     };
     setCollector(collect);
@@ -90,7 +79,6 @@ export default function ProgramDetailsForm({
   }, [setCollector]);
 
   const fieldStyle = { background: ac.surface, border: `1px solid ${ac.border}`, color: ac.text };
-  const showVideo = create || program?.video != null;
 
   return (
     <>
@@ -103,7 +91,7 @@ export default function ProgramDetailsForm({
           <div>
             <div className={label} style={{ color: ac.muted }}>Description</div>
             <textarea rows={4} value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="What is this program about?" className={css({ width: "100%", padding: "10px 12px", borderRadius: "8px", fontSize: "15px", lineHeight: 1.8, resize: "vertical" })} style={fieldStyle} />
-            <div className={hint} style={{ color: ac.faint }}>Shown on the public program page. Plain text (basic markup passes through unchanged).</div>
+            <div className={hint} style={{ color: ac.faint }}>Shown on the public program page — WordPress&apos;s &ldquo;Movie short description&rdquo;. Plain text; a blank line starts a new paragraph.</div>
           </div>
           <div className={css({ display: "grid", gridTemplateColumns: "200px 1fr", gap: "16px", alignItems: "start" })}>
             <div>
@@ -166,57 +154,6 @@ export default function ProgramDetailsForm({
           ) : null}
         </div>
       </FormCard>
-
-      {showVideo ? (
-        <FormCard title="Video source">
-          <div className={css({ display: "flex", gap: "16px", alignItems: "flex-start" })}>
-            <div className={css({ width: "150px", flex: "none" })}>
-              <div className={label} style={{ color: ac.muted }}>Method</div>
-              <Dropdown
-                label={methodLabel(choice)}
-                hasValue
-                open={methodOpen}
-                onToggle={() => setMethodOpen((x) => !x)}
-                onClose={() => setMethodOpen(false)}
-                options={METHODS.map((m) => ({ label: m.label, value: m.value }))}
-                selected={choice}
-                onSelect={setChoice}
-                minWidth={150}
-              />
-            </div>
-            <div className={css({ flex: 1, minWidth: 0 })}>
-              {choice === "movie_embed" ? (
-                <>
-                  <div className={label} style={{ color: ac.muted }}>Embed code</div>
-                  <textarea rows={3} value={embed} onChange={(e) => setEmbed(e.target.value)} placeholder="<iframe src=&quot;https://player.vimeo.com/…&quot;></iframe>" className={css({ width: "100%", padding: "10px 12px", borderRadius: "8px", fontSize: "12px", lineHeight: 1.6, resize: "vertical" })} style={{ ...fieldStyle, fontFamily: "ui-monospace, monospace" }} />
-                  <div className={hint} style={{ color: ac.faint }}>Prefer a plain URL when you have one — embeds pin the player size.</div>
-                </>
-              ) : choice === "movie_file" ? (
-                <>
-                  <div className={label} style={{ color: ac.muted }}>Uploaded file</div>
-                  <div className={css({ fontSize: "13px", padding: "10px 12px", borderRadius: "8px" })} style={{ background: ac.canvas, border: `1px dashed ${ac.border}`, color: ac.muted }}>
-                    {program?.video?.attachmentId
-                      ? `Attachment #${program.video.attachmentId} — replace it in WordPress (upload is a later increment).`
-                      : "No file attached. Uploading from the dashboard is a later increment — use URL instead."}
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className={label} style={{ color: ac.muted }}>Video URL</div>
-                  <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://vimeo.com/…" className={css({ width: "100%", height: "38px", padding: "0 12px", borderRadius: "8px", fontSize: "12.5px" })} style={{ ...fieldStyle, fontFamily: "ui-monospace, monospace" }} />
-                  <div className={hint} style={{ color: ac.faint }}>Vimeo, YouTube or a direct MP4 link.</div>
-                </>
-              )}
-            </div>
-            <div className={css({ width: "132px", flex: "none" })}>
-              <div className={label} style={{ color: ac.muted }}>Preview</div>
-              <div className={css({ aspectRatio: "16/9", borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center" })} style={{ background: ac.skeleton, border: `1px solid ${ac.border}` }}>
-                <Icon name="play" size={18} strokeWidth={1.4} style={{ color: ac.faint }} />
-              </div>
-            </div>
-          </div>
-        </FormCard>
-      ) : null}
     </>
   );
 }

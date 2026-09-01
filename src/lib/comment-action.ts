@@ -11,8 +11,8 @@
 
 import { revalidateTag } from "next/cache";
 
-const BASE = process.env.API_BASE_URL ?? "https://economy.ams.com.kh/wp-json";
-const WP_ORIGIN = (process.env.NEXT_PUBLIC_WP_ORIGIN ?? "https://economy.ams.com.kh").replace(/\/+$/, "");
+const BASE = process.env.API_BASE_URL ?? "https://education.ams.com.kh/wp-json";
+const WP_ORIGIN = (process.env.NEXT_PUBLIC_WP_ORIGIN ?? "https://education.ams.com.kh").replace(/\/+$/, "");
 
 export interface CommentFormState {
   ok: boolean;

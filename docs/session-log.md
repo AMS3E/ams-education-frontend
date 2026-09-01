@@ -762,7 +762,7 @@ Other decisions worth keeping:
   editing turnaround starts to hurt.
 
 **Frontend:** `preconnect`/`dns-prefetch` to the WP origin (and to
-ads.amscloud.cc when Revive is on) from the (site) layout — both are cross-origin
+ads.ams.com.kh when Revive is on) from the (site) layout — both are cross-origin
 and the hero's frame is above the fold, so the handshake was on the critical
 path. Verified present in the prerendered HTML.
 
@@ -1465,7 +1465,7 @@ Read that before continuing. This entry is the short version.
 
 1. **The ad stack is entirely hand-pasted into the child theme.** No ad plugin,
    no ad manager. Gamma Platform ("Damrei") declares nine zones in
-   `header-v3.php`'s `<head>`; AMS's own Revive (`ads.amscloud.cc`) fills `<ins>`
+   `header-v3.php`'s `<head>`; AMS's own Revive (`ads.ams.com.kh`) fills `<ins>`
    blocks pasted into post content; MSA delivers from a third Revive
    (`sknteam.com`).
 

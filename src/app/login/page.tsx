@@ -4,7 +4,7 @@ import { css, cx } from "@/styled-system/css";
 import { ac } from "@/components/admin/tokens";
 import { ADMIN_FONT_STACK, adminFont } from "@/components/admin/font";
 import LoginForm from "@/components/admin/LoginForm";
-import { getSession } from "@/lib/auth/session";
+import { getValidatedSession } from "@/lib/auth/session";
 
 export const metadata: Metadata = {
   title: "Sign in",
@@ -18,7 +18,7 @@ export const metadata: Metadata = {
 // validates the token against WordPress, so a stale-but-present cookie correctly
 // falls through to the form instead of ping-ponging with the layout's redirect.
 export default async function LoginPage() {
-  if (await getSession()) redirect("/admin");
+  if (await getValidatedSession()) redirect("/admin");
 
   return (
     <main

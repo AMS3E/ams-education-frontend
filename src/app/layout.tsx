@@ -20,7 +20,7 @@ export const metadata: Metadata = {
   title: {
     default: SITE_NAME,
     // Routes set their bare title; the suffix is applied here, once.
-    template: "%s — AMS Economy",
+    template: "%s — AMS Education",
   },
   description: SITE_DESCRIPTION,
   openGraph: {

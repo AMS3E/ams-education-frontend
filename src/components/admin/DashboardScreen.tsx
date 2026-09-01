@@ -328,7 +328,7 @@ export default function DashboardScreen({ firstName }: { firstName: string }) {
                   {queue.comments > 0 ? (
                     <QueueRow
                       icon='comment'
-                      href='https://infotainment.ams.com.kh/wp-admin/edit-comments.php?comment_status=moderated'
+                      href='https://education.ams.com.kh/wp-admin/edit-comments.php?comment_status=moderated'
                       count={queue.comments}
                       label={queue.comments === 1 ? "comment awaiting moderation" : "comments awaiting moderation"}
                       note='opens wp-admin'

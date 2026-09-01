@@ -8,7 +8,7 @@
 
 import { safeTags } from "./client";
 
-const API_BASE = process.env.API_BASE_URL ?? "https://economy.ams.com.kh/wp-json";
+const API_BASE = process.env.API_BASE_URL ?? "https://education.ams.com.kh/wp-json";
 const SITE_URL = API_BASE.replace(/\/wp-json\/?$/, "");
 
 export interface RenderedProgramIcon {

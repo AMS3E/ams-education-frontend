@@ -216,7 +216,7 @@ always-on = underlays.
 | `vodi-child-header-v3.php` | **The live header since the §12 referee shipped.** The child-theme override: `info-header-v3.php` + the `AMS_POPUP_WINNER` referee + the two underlay zones wrapped. WordPress loads it instead of the parent's copy. |
 | `vodi-child-function.php` | The live child `functions.php` (1474 lines). Relevant line: **370**, where `ads.js` is enqueued. |
 | `ads.js` | The child theme's responsive-Revive helper. Matters because it **collides** with the MSA popup — see §5. |
-| `header-v3.php` | **A TRAP for infotainment work. Ignore it there.** Provenance SOLVED 2026-08-13: its Meta Pixel (`694960145106572`), Metricool hash, and Dailymotion token all match **economy.ams.com.kh's live header** — it is an old ECONOMY-site backup (outdated even for economy: no `ads.amscloud.cc` loader). Still never merge from it; the current economy header is `economy-header-v3.php` below. |
+| `header-v3.php` | **A TRAP for infotainment work. Ignore it there.** Provenance SOLVED 2026-08-13: its Meta Pixel (`694960145106572`), Metricool hash, and Dailymotion token all match **economy.ams.com.kh's live header** — it is an old ECONOMY-site backup (outdated even for economy: no `ads.ams.com.kh` loader). Still never merge from it; the current economy header is `economy-header-v3.php` below. |
 | `economy-header-v3.php` | **Economy's live parent header as exported** (`themes/vodi/header-v3.php` from `themes.tar.gz` — vodi-child has no override there either). The pre-package record and the content the no-Gamma override was derived from. See §15. |
 | `economy-vodi-child-header-v3-nogamma.php` | **The economy no-Gamma child override (v2.4.0 package, not yet deployed).** Economy's parent header minus the Gamma loader/defines/dead-pop blocks, plus the bgColor XSS fix — same treatment as infotainment's `vodi-child-header-v3-nogamma.php`. Deploys to economy's `wp-content/themes/vodi-child/header-v3.php`. See §15. |
 | `themes.tar.gz` | **Economy.ams.com.kh's full `wp-content/themes/` export** (vodi, vodi-child, vodi-BK, twentytwentyfive), obtained 2026-08-13. The source of every economy finding in §15. |
@@ -253,9 +253,9 @@ that pulls VAST from `tag.gammaplatform.com` (`wid=1721642224`,
 
 ### B. AMS's own Revive Adserver
 
-`<script async src="//ads.amscloud.cc/www/delivery/asyncjs.php">` at line 66 —
+`<script async src="//ads.ams.com.kh/www/delivery/asyncjs.php">` at line 66 —
 almost certainly the `revive-ads` container on the company's Dokploy box.
-Publisher id `55aa4b5dd75ab774bd198a60f6c237bc`. Zones **9, 10, 11, 12** are
+Publisher id `d76f006be89744f510aa36ab20de12fc`. Zones **9, 10, 11, 12** are
 pasted as `<ins data-revive-zoneid="…">` blocks **into post content**, not the
 theme.
 
@@ -504,7 +504,7 @@ Per repo convention, our plugins carry `Author: Soth Kimleng`.
 4. The creative is **not** shrunken or offset inside the box (proves the `ads.js`
    CSS fix landed)
 5. Damrei is unchanged — its underlay still appears at its usual rate, and zones
-   9/10/11/12 from `ads.amscloud.cc` still render (two Revive loaders now share
+   9/10/11/12 from `ads.ams.com.kh` still render (two Revive loaders now share
    the page)
 6. Frequency cap holds: a second pageview inside the cap window shows nothing
 
@@ -678,7 +678,7 @@ checksum-guarded, one wrong char kills it). As-built decisions beyond the plan:
    on the stats screen (shown once desktop share > 0 or data exists). Mobile
    history reads unchanged.
 8. **The new header keeps** the Damrei video in-view unit, the
-   `ads.amscloud.cc` loader, pixels, and the placeholder divs — only the
+   `ads.ams.com.kh` loader, pixels, and the placeholder divs — only the
    referee + Gamma loader + defines + the DOMContentLoaded block left. It also
    carries the §8.2 one-line XSS fix (`esc_attr` on the bgColor cookie echo).
 
@@ -807,7 +807,7 @@ outside `gammatag.cmd` with no sendRequest = dead code; the unescaped
 `$_COOKIE['bgColor']` echo = reflected XSS), no underlay placeholder divs (so
 per §14 fact 2 the underlays have never served there either), the same dead
 commented GPAS/ad-exchange pop block, the same obfuscated Damrei video
-in-view unit (same wid/zid), the same `ads.amscloud.cc` loader, and a child
+in-view unit (same wid/zid), the same `ads.ams.com.kh` loader, and a child
 `ads.js` enqueued the same way (so the §5 transform collision applies — the
 plugin's CSS fix already covers it).
 

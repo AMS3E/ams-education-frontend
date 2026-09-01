@@ -23,8 +23,9 @@
  *      so `rest_after_insert_post` finally shows up in the numbers.
  *
  * Hit DIRECTLY, not through WordPress routing:
- *   /wp-content/plugins/ams-write-probe/write.php?k=<token>          (phase A)
- *   /wp-content/plugins/ams-write-probe/write.php?k=<token>&write=1  (phase A+B)
+ *   /wp-content/plugins/ams-write-probe/write.php?k=<token>            (phase A)
+ *   /wp-content/plugins/ams-write-probe/write.php?k=<token>&write=1    (phase A+B)
+ *   /wp-content/plugins/ams-write-probe/write.php?k=<token>&update=<id> (phase A+U)
  *
  * PHASE A IS READ-ONLY — it walks $wp_filter and reports, wrapping nothing.
  *
@@ -33,6 +34,17 @@
  * are hard-deleted before the response is written, titles are prefixed
  * [AMS WRITE PROBE], and anything a crashed run left behind is reported under
  * `leftover`.
+ *
+ * PHASE U (v3) re-saves ONE EXISTING post through the same REST stack the
+ * admin dashboard uses, sending the post's OWN current title — a same-value
+ * write, so content never changes — and attributes the cost per callback.
+ * Built because the v2 assumption "publishing is covered by the same removal"
+ * failed its first real test: a published EPISODE edit-save measured 139s on
+ * 2026-08-26 WITH the ams-cache skip verifiably active (skipped:4). Whatever
+ * eats those minutes is NOT the preload crawl, and this phase names it.
+ * It also instruments the target's post-type-specific hook variants
+ * (save_post_episode, rest_after_insert_episode, …) that phase B's post-typed
+ * list never covered.
  */
 
 $AMS_TOKEN = 'a7f3c1d9e2b64058';
@@ -189,10 +201,36 @@ function ams_hook_map( $hook ) {
 	return $out;
 }
 
+$do_write  = isset( $_GET['write'] ) && $_GET['write'] === '1';
+$update_id = isset( $_GET['update'] ) ? (int) $_GET['update'] : 0;
+
+// Phase U targets one existing post, so its post type's OWN hook variants get
+// instrumented too — save_post_{type} and the rest_ family are where a
+// CPT-specific plugin (MasVideos here) does its work.
+$update_post = $update_id ? get_post( $update_id ) : null;
+if ( $update_post ) {
+	$t = $update_post->post_type;
+	array_push(
+		$WRITE_HOOKS,
+		'rest_pre_insert_' . $t,
+		'rest_insert_' . $t,
+		'rest_after_insert_' . $t,
+		'save_post_' . $t,
+		'edit_post_' . $t,
+		'publish_' . $t,
+		'edit_post',
+		'publish_to_publish',
+		// The no-underscore twins are DISTINCT hooks from added/updated_post_meta.
+		'added_postmeta',
+		'updated_postmeta',
+		'deleted_postmeta'
+	);
+}
+
 $report = array(
 	'ok'     => true,
-	'probe'  => 'v2 (per-callback attribution)',
-	'phase'  => isset( $_GET['write'] ) && $_GET['write'] === '1' ? 'A+B' : 'A',
+	'probe'  => 'v3 (per-callback attribution + published-post update)',
+	'phase'  => 'A' . ( $do_write ? '+B' : '' ) . ( $update_id ? '+U' : '' ),
 	'wp'     => get_bloginfo( 'version' ),
 	'php'    => PHP_VERSION,
 	'timing' => array( 'wpBootMs' => $boot_ms ),
@@ -212,9 +250,9 @@ foreach ( $WRITE_HOOKS as $hook ) {
 $report['hookCounts'] = array_filter( $counts );
 $report['hooks']      = $hooks;
 
-/* --- PHASE B: attribute the time, callback by callback -------------------- */
+/* --- PHASES B and U: attribute the time, callback by callback ------------- */
 
-if ( $report['phase'] === 'A+B' ) {
+if ( $do_write || $update_id ) {
 
 	/** Accumulator: "hook | callback" => {calls, ms}. Written by the wrappers. */
 	$LOG = array();
@@ -303,6 +341,8 @@ if ( $report['phase'] === 'A+B' ) {
 
 	$report['as'] = array( 'userId' => $as_user, 'canPublish' => current_user_can( 'publish_posts' ) );
 
+	if ( $do_write ) {
+
 	/* 1. CREATE, through the REST stack the admin tool actually uses. */
 	$req = new WP_REST_Request( 'POST', '/wp/v2/posts' );
 	$req->set_header( 'content-type', 'application/json' );
@@ -363,6 +403,69 @@ if ( $report['phase'] === 'A+B' ) {
 			'perCallback' => $rank( $LOG ),
 		);
 		$LOG = array();
+	}
+
+	} // $do_write
+
+	/* U. RE-SAVE one existing post through REST — the admin's exact write
+	 *    path, with the post's own current title, so content never changes. */
+	if ( $update_post ) {
+		$before = array(
+			'id'       => (int) $update_post->ID,
+			'type'     => $update_post->post_type,
+			'status'   => $update_post->post_status,
+			'slug'     => $update_post->post_name,
+			'title'    => $update_post->post_title,
+			'modified' => $update_post->post_modified_gmt,
+			'link'     => get_permalink( $update_post ),
+		);
+
+		$pto  = get_post_type_object( $update_post->post_type );
+		$base = $pto && ! empty( $pto->rest_base ) ? $pto->rest_base : $update_post->post_type;
+
+		$req = new WP_REST_Request( 'POST', '/wp/v2/' . $base . '/' . $update_post->ID );
+		$req->set_header( 'content-type', 'application/json' );
+		// The full save path runs regardless of what changed (wp_update_post
+		// has no "nothing changed" early-out). Same-value meta would
+		// short-circuit in core, so none is sent — the admin's real writes
+		// behave identically for unchanged keys.
+		$req->set_body( wp_json_encode( array( 'title' => $update_post->post_title ) ) );
+
+		$t0       = microtime( true );
+		$res      = rest_do_request( $req );
+		$updateMs = round( ( microtime( true ) - $t0 ) * 1000, 1 );
+		$data     = $res->get_data();
+
+		$per        = $rank( $LOG );
+		$attributed = 0.0;
+		foreach ( $per as $r ) {
+			$attributed += $r['ms'];
+		}
+
+		$after = get_post( $update_post->ID );
+
+		$report['restUpdate'] = array(
+			'totalMs'      => $updateMs,
+			// Nested hooks double-count inside their parent, so attributed CAN
+			// exceed total. The signal that matters is the reverse: a total far
+			// ABOVE attributed means the time lives outside every instrumented
+			// hook, and the hook list needs widening.
+			'attributedMs' => round( $attributed, 1 ),
+			'status'       => $res->get_status(),
+			'error'        => $res->is_error() ? $data : null,
+			'before'       => $before,
+			'after'        => $after ? array(
+				'status'   => $after->post_status,
+				'slug'     => $after->post_name,
+				'title'    => $after->post_title,
+				'modified' => $after->post_modified_gmt,
+				'link'     => get_permalink( $after ),
+			) : null,
+			'perCallback'  => $per,
+		);
+		$LOG = array();
+	} elseif ( $update_id ) {
+		$report['restUpdate'] = array( 'error' => 'post ' . $update_id . ' not found' );
 	}
 
 	/* Anything a crashed run left behind. Drafts only ever, so nothing public. */

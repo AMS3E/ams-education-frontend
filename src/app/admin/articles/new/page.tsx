@@ -4,8 +4,10 @@ import { readCategories, type CategoryNode } from "@/lib/admin/categories";
 import { listPostTemplates, type PostTemplate } from "@/lib/admin/post-edit";
 import { AdminAuthError } from "@/lib/admin/client";
 
-// New Article — the editor in "create" mode. Categories are loaded so the picker
-// is real; everything else starts blank (status Draft).
+// New Article — the editor with no post. Categories are loaded so the picker is
+// real; everything else starts blank. Nothing exists in WordPress until the
+// editor's first autosave creates the draft (once something is written, a
+// minute in) — from then on it edits that draft in place under its real URL.
 export default async function AdminNewArticlePage() {
   let categories: CategoryNode[] = [];
   let templates: PostTemplate[] = [];
@@ -16,5 +18,5 @@ export default async function AdminNewArticlePage() {
     if (e instanceof AdminAuthError) redirect("/login");
     // A category-list hiccup shouldn't block creating an article.
   }
-  return <ArticleEditor mode="create" categories={categories} templates={templates} />;
+  return <ArticleEditor categories={categories} templates={templates} />;
 }

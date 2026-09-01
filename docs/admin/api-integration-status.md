@@ -59,7 +59,7 @@ _Previous: 2026-07-31 (unattended "replace wp-admin" session). Done: auth, Artic
 |---|---|---|---|---|
 | List (movies + tv_shows) | `GET wp/v2/movie` + `wp/v2/tv_show` | R | ✅ | Verified — 43 programs, grid/list, search + type |
 | Editor load | `GET wp/v2/movie\|tv_show/{id}?context=edit` | R | ✅ | Verified — plugin v1.7.2 `user_has_cap` filter unblocked the 403; curated meta registered since v1.7.1 |
-| Editor save (title, description, release date, schedule, video source) | `POST wp/v2/movie\|tv_show/{id}` | W | ✅ | Browser-verified on a throwaway draft (round-tripped via API). Video source is movies-only; status/artwork/`_seasons` out of scope |
+| Editor save (title, description, release date, schedule, artwork) | `POST wp/v2/movie\|tv_show/{id}` | W | ✅ | Browser-verified on a throwaway draft (round-tripped via API). Description writes `excerpt` (post_excerpt = the public page's text) since 2026-08-27 — `content` is the old WP page's layout canvas, never written. Video source cut from the editor same day (owner request) — `_movie_*` video meta stays managed in WP; status/`_seasons` out of scope |
 | Episodes list (read-only tab) | `GET wp/v2/web/tv-show-episodes` | R | ✅ | Wired — grouped by season parsed from "S2:E14" labels; managed in WP |
 | Create a program | `POST wp/v2/tv_show` + `POST wp/v2/movie` | W | 🟡 | Draft movie + published container tv_show, `_khi_tv_show_id` link; public registry is dynamic now |
 
@@ -68,8 +68,8 @@ _Previous: 2026-07-31 (unattended "replace wp-admin" session). Done: auth, Artic
 | Feature | Endpoint / method | R/W | Status | Notes |
 |---|---|---|---|---|
 | Grid + search + type filter + detail drawer | `GET wp/v2/media` | R | ✅ | Verified — 115,259 items, paginated |
-| Upload (images) | browser → `/api/admin/upload` → `POST wp/v2/media` (raw body) | W | ✅ | Browser-verified incl. s3 offload. Route Handler on purpose — Server Actions 500 on File payloads |
-| Upload (video ≤300MB / audio ≤50MB) | same route, per-type caps + 10-min timeout | W | 🟡 | Built 2026-08-17, not live-tested; the host's PHP `upload_max_filesize` is unknown and wins — a 413 means aaPanel config, not code |
+| Upload (images ≤20MB) | browser → `/api/admin/upload` → `POST wp/v2/media` (raw body) | W | ✅ | Browser-verified incl. s3 offload. Route Handler on purpose — Server Actions 500 on File payloads. Cap raised 10→20MB 2026-08-27 after probing the host (20MB body → 401, accepted) |
+| Upload (video ≤300MB / audio ≤50MB) | same route, per-type caps + 10-min timeout | W | 🟡 | Built 2026-08-17, not live-tested. Host body cap measured 2026-08-27: 20MB passes, 100MB → instant 413 (nginx), so the 50MB audio cap is plausible but the 300MB video cap will 413 until aaPanel's `client_max_body_size` is raised |
 | Edit alt / delete | `POST/DELETE wp/v2/media/{id}` | W | 🟡 | Drawer edits alt (images) + permanent delete w/ confirm (no REST trash) |
 | "Own files only" for non-admins | query scoping | R | ⬜ | Default WP shows all |
 

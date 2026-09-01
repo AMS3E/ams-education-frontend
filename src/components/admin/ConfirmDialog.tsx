@@ -39,8 +39,9 @@ export default function ConfirmDialog({
   onCancel,
 }: {
   title: string;
-  /** The explanation — say what happens and whether it's reversible. */
-  children: ReactNode;
+  /** The explanation — say what happens and whether it's reversible. Omit
+   *  for a bare question where the title says it all ("Ready to publish?"). */
+  children?: ReactNode;
   confirmLabel: string;
   busyLabel?: string;
   /** "danger" paints the confirm button in the error red, kept distinct from
@@ -68,7 +69,11 @@ export default function ConfirmDialog({
 
   return (
     <div
-      className={css({ position: "fixed", inset: 0, zIndex: 120, display: "flex", alignItems: "center", justifyContent: "center", padding: "32px" })}
+      // The modal tier every overlay here shares (MediaPicker, CategoriesDialog):
+      // above the article editor's sticky toolbar band (1000001, which itself
+      // must beat Gutenberg's popovers at 1000000) and below the toast
+      // (1000060). At the old 120 the band floated over the backdrop, unshaded.
+      className={css({ position: "fixed", inset: 0, zIndex: 1000050, display: "flex", alignItems: "center", justifyContent: "center", padding: "32px" })}
       style={{ background: ac.overlay }}
       onClick={() => {
         if (!busy) onCancel();
@@ -83,9 +88,11 @@ export default function ConfirmDialog({
         style={{ background: ac.surface, border: `1px solid ${ac.border}`, boxShadow: ac.shadowMd }}
       >
         <div className={css({ fontSize: "14px", fontWeight: 600 })}>{title}</div>
-        <div className={css({ fontSize: "13px", lineHeight: 1.7, marginTop: "10px" })} style={{ color: ac.muted }}>
-          {children}
-        </div>
+        {children ? (
+          <div className={css({ fontSize: "13px", lineHeight: 1.7, marginTop: "10px" })} style={{ color: ac.muted }}>
+            {children}
+          </div>
+        ) : null}
 
         {error ? (
           <p

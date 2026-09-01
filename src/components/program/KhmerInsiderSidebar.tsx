@@ -95,7 +95,9 @@ function seasonOf(episode: RailEpisode): number {
   const labelledLink = slug.match(/^s(\d+)e\d+$/i);
   if (labelledLink) return Number(labelledLink[1]);
   if (/^e\d+$/i.test(slug)) return 1;
-  return Number(episode.label.match(/^S(\d+)(?::E\d+)?$/i)?.[1] ?? 0);
+  // Eco presents unlabelled legacy episodes as season 1 rather than exposing
+  // a “no season number” option to visitors.
+  return Number(episode.label.match(/^S(\d+)(?::E\d+)?$/i)?.[1] ?? 1);
 }
 
 export default function KhmerInsiderSidebar({
@@ -146,7 +148,7 @@ export default function KhmerInsiderSidebar({
         >
           {seasons.map((season, index) => (
             <option key={`${season.number}-${index}`} value={index}>
-              {season.number > 0 ? `រដូវកាល ${khmerNumber(season.number)}` : "គ្មានលេខរដូវកាល"}
+              រដូវកាលទី {khmerNumber(season.number)}
             </option>
           ))}
         </select>

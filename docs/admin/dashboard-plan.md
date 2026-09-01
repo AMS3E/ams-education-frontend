@@ -8,7 +8,7 @@ already reads it.
 Everything below was verified against the live site (GET probes + two temporary
 diagnostic routes), not assumed. Nothing here is built yet.
 
-Base: `https://infotainment.ams.com.kh/wp-json`
+Base: `https://education.ams.com.kh/wp-json`
 
 ---
 

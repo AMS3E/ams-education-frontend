@@ -22,7 +22,7 @@
 
 import { ApiError, safeTags, type CacheOpts } from "./client";
 
-const API_BASE = process.env.API_BASE_URL ?? "https://economy.ams.com.kh/wp-json";
+const API_BASE = process.env.API_BASE_URL ?? "https://education.ams.com.kh/wp-json";
 
 /** `https://site/wp-json` -> `https://site/wp-content/plugins/ams-fast-api/fast.php` */
 function derivedFastUrl(): string {

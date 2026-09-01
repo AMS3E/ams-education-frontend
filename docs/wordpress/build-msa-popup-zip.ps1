@@ -1,7 +1,8 @@
-# Builds the TWO per-site plugin zips from the ONE source in ams-msa-popup/:
+# Builds the per-site plugin zips from the ONE source in ams-msa-popup/:
 #
 #   ams-msa-popup-infotainment/  + ams-msa-popup-infotainment.zip
 #   ams-msa-popup-economy/       + ams-msa-popup-economy.zip
+#   ams-msa-popup-education/     + ams-msa-popup-education.zip
 #
 # Each generated copy has the @AMS_SITE_PIN@ marker line replaced with
 # define( 'AMS_MSA_POPUP_SITE', '<site>' ), hard-wiring which zone seed that
@@ -38,7 +39,7 @@ if ($srcPhp -notmatch '(?m)^// @AMS_SITE_PIN@') { throw 'source is missing the @
 $oldZip = Join-Path $root 'ams-msa-popup.zip'
 if (Test-Path $oldZip) { Remove-Item $oldZip }
 
-foreach ($site in @('infotainment', 'economy')) {
+foreach ($site in @('infotainment', 'economy', 'education')) {
     $outDir  = Join-Path $root "ams-msa-popup-$site"
     $zipPath = Join-Path $root "ams-msa-popup-$site.zip"
 

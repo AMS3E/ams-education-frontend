@@ -39,6 +39,11 @@
  * and leaderboard, while the KPI cards stay pinned to 7-vs-prior-7 ending
  * today via their own mini-series. 1.8.1: program posters resolve large-first
  * (large -> medium -> full) so the admin grid stops upscaling the 300px medium.
+ * 1.8.4: the `program` resource serves `excerpt` (post_excerpt — what the
+ * public program page shows) and renames `description` to `body`
+ * (post_content — the old WP page's layout canvas); see its header.
+ * 1.8.5: AMS_FAST_CDN_BASE corrected from the `infotainment` bucket to
+ * `education` — every offloaded-media URL this file built was 404ing.
  * Gates: users + roles require list_users; media requires edit_posts;
  * settings requires manage_options; programs/program/episode require the
  * (derived) program caps; profile is always the token's own user.
@@ -137,9 +142,17 @@ if ( ! defined( 'AMS_FAST_DIAG_TOKEN' ) ) {
 }
 
 /** KH Offloader -> Custom Domain (CDN URL), verbatim, no trailing slash.
- *  Override in wp-config.php if the bucket or domain ever changes. */
+ *  Override in wp-config.php if the bucket or domain ever changes.
+ *  1.8.5: was hardcoded to the `infotainment` bucket — a leftover from before
+ *  this plugin's install moved to education.ams.com.kh, whose media lives in
+ *  the `education` bucket instead. Every fast-path media/program/episode URL
+ *  built from this constant 404'd (confirmed live: WP REST's own offloaded
+ *  source_url is https://s3.ams.com.kh/education/..., not .../infotainment/...),
+ *  which is why the admin Media screen showed every thumbnail broken while
+ *  filenames/sizes (read straight from the database, not this constant) were
+ *  fine. */
 if ( ! defined( 'AMS_FAST_CDN_BASE' ) ) {
-	define( 'AMS_FAST_CDN_BASE', 'https://s3.ams.com.kh/infotainment' );
+	define( 'AMS_FAST_CDN_BASE', 'https://s3.ams.com.kh/education' );
 }
 
 /** Object-cache group + a version prefix. Bump the version to invalidate every
@@ -2524,9 +2537,17 @@ function ams_fast_permalink( $post_id ) {
  * here, since the filter that supplies them does not run. See
  * ams_fast_can_program().
  *
- * The description is post_content RAW, which is what the editor writes back
- * (programs predate Gutenberg on this site — classic metabox markup, no block
- * delimiters), so unlike an article body this round-trips losslessly.
+ * Two text fields, distinct on purpose (1.8.4):
+ *   excerpt — post_excerpt RAW: MasVideos' "Movie short description", which is
+ *             what /web/program serves as the PUBLIC page's description. This
+ *             is the field the editor's Description box edits.
+ *   body    — post_content RAW, read-only in the editor. On newer programs it
+ *             is a Gutenberg columns + [epsode-carousel] layout canvas for the
+ *             old WP-rendered page (older ones carry classic plain markup), so
+ *             the editor shows it but never writes it.
+ * A client that needs `excerpt` must treat its ABSENCE (a pre-1.8.4 build) as
+ * "read via WP REST instead" — reading it as "" would blank the short
+ * description on the next save.
  * ======================================================================== */
 
 function ams_fast_res_program( array $user, array $caps, array $roles ) {
@@ -2540,7 +2561,7 @@ function ams_fast_res_program( array $user, array $caps, array $roles ) {
 	$t0  = microtime( true );
 	$row = $wpdb->get_row(
 		$wpdb->prepare(
-			"SELECT ID, post_type, post_status, post_name, post_title, post_content, post_author
+			"SELECT ID, post_type, post_status, post_name, post_title, post_content, post_excerpt, post_author
 			 FROM $T_POSTS
 			 WHERE ID = %d AND post_type IN ('movie','tv_show') LIMIT 1",
 			$id
@@ -2587,7 +2608,8 @@ function ams_fast_res_program( array $user, array $caps, array $roles ) {
 		'type'        => $type,
 		'slug'        => (string) $row->post_name,
 		'title'       => (string) $row->post_title,
-		'description' => (string) $row->post_content,
+		'excerpt'     => (string) $row->post_excerpt,
+		'body'        => (string) $row->post_content,
 		'status'      => (string) $row->post_status,
 		'link'        => ams_fast_permalink( (int) $row->ID ),
 		// The editor renders the MEDIUM poster, falling back to thumbnail.
@@ -2634,7 +2656,7 @@ function ams_fast_res_episode( array $user, array $caps, array $roles ) {
 	$t0  = microtime( true );
 	$row = $wpdb->get_row(
 		$wpdb->prepare(
-			"SELECT ID, post_status, post_name, post_title, post_author
+			"SELECT ID, post_status, post_name, post_title, post_excerpt, post_author
 			 FROM $T_POSTS WHERE ID = %d AND post_type = 'episode' LIMIT 1",
 			$id
 		)
@@ -2682,6 +2704,9 @@ function ams_fast_res_episode( array $user, array $caps, array $roles ) {
 				'videoUrl'  => $mstr( '_episode_url_link' ),
 				'releaseTs' => $mint( '_episode_release_date' ),
 				'runTime'   => $mstr( '_episode_run_time' ),
+				// post_excerpt: the "Description" box under the player (1.8.3).
+				// The admin's edit dialog refuses to use a build without it.
+				'excerpt'   => (string) $row->post_excerpt,
 				'thumbId'   => $mint( '_thumbnail_id' ),
 				'thumbUrl'  => ams_fast_featured_url( $meta, array( 'medium', 'thumbnail' ) ),
 			),

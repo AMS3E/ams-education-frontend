@@ -18,7 +18,7 @@ import type { WpArticleListItem, WpListEnvelope } from "./api/wp-types";
 import { getCategoryHrefs } from "./categories";
 import type { ArticleRef } from "./articles";
 
-const BASE = process.env.API_BASE_URL ?? "https://economy.ams.com.kh/wp-json";
+const BASE = process.env.API_BASE_URL ?? "https://education.ams.com.kh/wp-json";
 
 /** A post from core `/wp/v2/posts` with `_embed=wp:featuredmedia,wp:term`. */
 interface WpCorePost {

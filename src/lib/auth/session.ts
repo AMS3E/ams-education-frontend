@@ -17,7 +17,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { SESSION_COOKIE, SESSION_USER_COOKIE } from "./constants";
 
-const BASE = process.env.API_BASE_URL ?? "https://economy.ams.com.kh/wp-json";
+const BASE = process.env.API_BASE_URL ?? "https://education.ams.com.kh/wp-json";
 
 /** Curated cap→bool map from /web/login and /web/me (see ams_afa_login_caps). */
 export type Capabilities = Record<string, boolean>;
@@ -176,6 +176,20 @@ export const getSession = cache(async (): Promise<Session | null> => {
   const user = await fetchMe(token);
   if (!user) return null;
   return { token, user };
+});
+
+/**
+ * Validate a session token against WordPress even when the cached user cookie
+ * is present. This is intentionally reserved for /login: trusting the cached
+ * user there can bounce an expired token back to /admin, whose first protected
+ * request redirects straight back to /login.
+ */
+export const getValidatedSession = cache(async (): Promise<Session | null> => {
+  const store = await cookies();
+  const token = store.get(SESSION_COOKIE)?.value;
+  if (!token) return null;
+  const user = await fetchMe(token);
+  return user ? { token, user } : null;
 });
 
 /** Session or bust: redirects to /login when there is none. */

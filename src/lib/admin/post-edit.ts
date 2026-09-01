@@ -201,7 +201,10 @@ export interface SavedPost {
   status: string;
   slug: string;
   link?: string;
+  categories?: number[];
 }
+
+const CATEGORY_PERMALINK_HEADER = { "X-AMS-Category-Permalink": "1" };
 
 /** Update an existing post. WordPress accepts POST on the item route as an update.
  *
@@ -217,22 +220,24 @@ export interface SavedPost {
  *  — so a rejected write loses every other edit in the payload (title, body,
  *  categories, SEO), which is what makes this worth a second round trip rather
  *  than a comment. It only fires when a password is actually being set. */
-export async function updatePost(id: number, patch: PostWrite): Promise<SavedPost> {
+export async function updatePost(id: number, patch: PostWrite, categoryPermalink = false): Promise<SavedPost> {
   if (patch.password && patch.sticky === false) {
     await adminFetch(`/wp/v2/posts/${id}`, { method: "POST", body: { sticky: false } });
   }
   const { data } = await adminFetch<SavedPost>(`/wp/v2/posts/${id}`, {
     method: "POST",
     body: patch,
+    ...(categoryPermalink ? { headers: CATEGORY_PERMALINK_HEADER } : {}),
   });
   return data;
 }
 
 /** Create a new post. Defaults to draft unless the caller sets a status. */
-export async function createPost(fields: PostWrite): Promise<SavedPost> {
+export async function createPost(fields: PostWrite, categoryPermalink = false): Promise<SavedPost> {
   const { data } = await adminFetch<SavedPost>(`/wp/v2/posts`, {
     method: "POST",
     body: { status: "draft", ...fields },
+    ...(categoryPermalink ? { headers: CATEGORY_PERMALINK_HEADER } : {}),
   });
   return data;
 }

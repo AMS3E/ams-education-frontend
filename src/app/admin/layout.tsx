@@ -5,6 +5,7 @@ import { ADMIN_FONT_STACK, adminFont } from "@/components/admin/font";
 import AdminSidebar from "@/components/admin/AdminSidebar";
 import QueryProvider from "@/components/admin/QueryProvider";
 import { requireSession, type SessionUser } from "@/lib/auth/session";
+import { roleLabel } from "@/lib/admin/role-label";
 
 export const metadata: Metadata = {
   title: "Admin",
@@ -18,12 +19,6 @@ function initialsOf(name: string): string {
   if (parts.length === 0) return "?";
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
-
-/** "seo_manager" → "Seo Manager". Roles are Latin slugs, so this is safe. */
-function roleLabel(roles: string[]): string {
-  const slug = roles[0] ?? "";
-  return slug ? slug.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "—";
 }
 
 function toSidebarUser(user: SessionUser) {

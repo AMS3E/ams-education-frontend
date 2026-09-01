@@ -17,7 +17,7 @@
 import { cookies } from "next/headers";
 import { SESSION_COOKIE } from "@/lib/auth/constants";
 
-const BASE = process.env.API_BASE_URL ?? "https://infotainment.ams.com.kh/wp-json";
+const BASE = process.env.API_BASE_URL ?? "https://education.ams.com.kh/wp-json";
 
 /** No token, or WordPress rejected it (401): the session is gone/expired. The
  *  caller maps this to a redirect to /login. */
@@ -56,6 +56,9 @@ export interface AdminFetchInit {
   query?: Record<string, QueryValue>;
   /** JSON request body (writes). */
   body?: unknown;
+  /** Extra request headers for a narrowly-scoped WordPress integration flag.
+   *  Authentication remains owned here and cannot be overridden by callers. */
+  headers?: Record<string, string>;
   /**
    * Explicit session token, bypassing the cookie read. The BFF routes pass
    * the token they already read for their auth gate; everything else lets the
@@ -95,22 +98,31 @@ function buildQuery(query?: Record<string, QueryValue>): string {
 export async function adminFetch<T>(path: string, init: AdminFetchInit = {}): Promise<AdminResponse<T>> {
   const token = init.token ?? (await requireToken());
   const hasBody = init.body !== undefined;
+  const method = init.method ?? "GET";
   // Dev-only: print every WordPress call's wall time. The admin's latency is
   // ~entirely WP's fixed ~4s-per-REST-call bootstrap — this makes it visible
   // (and makes regressions on our side, like N calls per screen, obvious).
+  // WRITES also log in production (they're rare), with the X-AMS-Cache-Preload
+  // response header: `skipped:4` proves the plugin skipped ams-cache's
+  // synchronous warm-up crawl for this request; fewer/absent means the slow
+  // path ran — check it before any other theory about a minutes-long save
+  // (docs/project-context.md §3).
   const started = Date.now();
-  const logTiming = (outcome: string) => {
-    if (process.env.NODE_ENV !== "production") {
-      console.log(`[adminFetch] ${init.method ?? "GET"} ${path} ${outcome} in ${Date.now() - started}ms`);
+  const logTiming = (outcome: string, preload?: string | null) => {
+    if (process.env.NODE_ENV !== "production" || preload !== undefined) {
+      const suffix = preload !== undefined ? ` cache-preload=${preload ?? "absent"}` : "";
+      console.log(`[adminFetch] ${method} ${path} ${outcome} in ${Date.now() - started}ms${suffix}`);
     }
   };
 
   const res = await fetch(`${BASE}${path}${buildQuery(init.query)}`, {
-    method: init.method ?? "GET",
+    method,
     headers: {
       accept: "application/json",
-      "X-AMS-Token": token,
       ...(hasBody ? { "content-type": "application/json" } : {}),
+      ...init.headers,
+      // Keep the authenticated session authoritative for every call.
+      "X-AMS-Token": token,
     },
     body: hasBody ? JSON.stringify(init.body) : undefined,
     // WordPress occasionally hangs a request outright (observed after an
@@ -123,7 +135,7 @@ export async function adminFetch<T>(path: string, init: AdminFetchInit = {}): Pr
     logTiming(e instanceof Error ? e.name : "network-error");
     throw e;
   });
-  logTiming(String(res.status));
+  logTiming(String(res.status), method !== "GET" ? res.headers.get("x-ams-cache-preload") : undefined);
 
   if (res.status === 401) throw new AdminAuthError();
   if (!res.ok) {

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AMS Frontend API
  * Description: General-purpose endpoints for the AMS Infotainment Next.js frontend (add new ones here as needed). Read-only + a standalone hero-slider embed + the homepage featured-program picker + anonymous REST commenting + per-user login tokens for authenticated writes + program custom-meta exposed to REST + skips AMS Cache's synchronous page warmer on dashboard writes (96s -> under 1s). Self-contained — deactivate/delete anytime with zero effect on anything else.
- * Version:     1.20.2
+ * Version:     1.22.0
  * Author:      Soth Kimleng
  *
  * Standalone "add endpoints as needed" API file, separate from the legacy
@@ -100,6 +100,12 @@
  *        (ams_afa_slider_alias) rather than from a hand-kept list.
  *
  * ── Behaviour changes ────────────────────────────────────────────────────────
+ *  Dashboard article permalinks (1.22.0): a core REST post write carrying
+ *        X-AMS-Category-Permalink: 1 stores `custom_permalink` as
+ *        <deepest-category-slug>/<post-slug>. It runs after core has persisted
+ *        terms, so the `link` in that same REST response is already canonical.
+ *        Ordinary wp-admin, imports and autosaves remain untouched.
+ *
  *  Profile avatar (1.20.0): a writable `ams_avatar` REST field on the user
  *        object, so GET/POST wp/v2/users/me carries the dashboard's profile
  *        picture. Core has no uploadable avatar — `avatar_urls` is an
@@ -165,6 +171,74 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
+/* ───────── Dashboard article category permalink (core REST write) ───────── */
+
+/** Number of ancestors above a category. Invalid/cyclic trees stop safely. */
+function ams_afa_category_depth( $term_id ) {
+    $depth = 0;
+    $seen  = array();
+    $term  = get_term( (int) $term_id, 'category' );
+
+    while ( $term && ! is_wp_error( $term ) && $term->parent ) {
+        if ( isset( $seen[ $term->term_id ] ) ) {
+            break;
+        }
+        $seen[ $term->term_id ] = true;
+        $depth++;
+        $term = get_term( (int) $term->parent, 'category' );
+    }
+    return $depth;
+}
+
+/** Deepest assigned category; Khmer-name order makes equal-depth ties stable. */
+function ams_afa_permalink_category( $post_id ) {
+    $terms = wp_get_post_categories( (int) $post_id, array( 'fields' => 'all' ) );
+    if ( is_wp_error( $terms ) || empty( $terms ) ) {
+        return null;
+    }
+
+    // Ignore Uncategorized whenever the writer assigned a real category.
+    $default_id = (int) get_option( 'default_category' );
+    if ( count( $terms ) > 1 ) {
+        $terms = array_values( array_filter( $terms, function ( $term ) use ( $default_id ) {
+            return (int) $term->term_id !== $default_id;
+        } ) );
+    }
+
+    usort( $terms, function ( $a, $b ) {
+        $depth = ams_afa_category_depth( $b->term_id ) - ams_afa_category_depth( $a->term_id );
+        return 0 !== $depth ? $depth : strnatcasecmp( $a->name, $b->name );
+    } );
+    return $terms ? $terms[0] : null;
+}
+
+/**
+ * Core has already saved title, slug and terms when this action fires, but has
+ * not prepared its response yet. Updating the Custom Permalinks meta here makes
+ * the response's `link` immediately read /category-slug/post-slug/.
+ */
+add_action( 'rest_after_insert_post', function ( $post, $request ) {
+    if ( '1' !== (string) $request->get_header( 'x-ams-category-permalink' ) ) {
+        return;
+    }
+    if ( ! $post instanceof WP_Post || 'post' !== $post->post_type || ! current_user_can( 'edit_post', $post->ID ) ) {
+        return;
+    }
+
+    $category = ams_afa_permalink_category( $post->ID );
+    $slug     = sanitize_title( $post->post_name );
+    if ( ! $category || '' === $category->slug || '' === $slug ) {
+        return;
+    }
+
+    update_post_meta(
+        $post->ID,
+        'custom_permalink',
+        trailingslashit( trim( sanitize_title( $category->slug ), '/' ) . '/' . trim( $slug, '/' ) )
+    );
+    clean_post_cache( $post->ID );
+}, 10, 2 );
+
 /* ─────────────────────────────── CONFIG ───────────────────────────────────── */
 
 // The Slider Revolution alias shown as the homepage hero (and the fallback for
@@ -226,17 +300,6 @@ function ams_afa_embed_origins() {
         // in Session 31 §5, fixed here in 1.11.0 because the popup fix below
         // is unobservable in production while the frame itself is blocked.
         'https://info.amscloud.cc',
-        // Education hostname (Dokploy).
-        'https://edu.amscloud.cc',
-        // Education custom domain. Its absence is the same bug as the
-        // info.amscloud.cc one above — "education.ams.com.kh refused to
-        // connect" in the hero iframe. Added 1.20.2.
-        'https://education.ams.com.kh',
-        // Local dev runs `next dev --experimental-https` (see package.json),
-        // so it's HTTPS on 3000 — the bare http:// entry below never matches
-        // it (CSP origin-matching includes scheme) and silently blocks the
-        // frame. Keep both: some checkout might still run plain http dev.
-        'https://localhost:3000',
         'http://localhost:3000',
         'https://ams-infotainment-frontend.vercel.app',
     );
@@ -1232,9 +1295,12 @@ add_action( 'transition_post_status', function ( $new_status, $old_status, $post
  * request to decide something that is not a permission.
  *
  * The response carries X-AMS-Cache-Preload so this is verifiable rather than
- * assumed — `skipped:4` is healthy. Fewer means ams-cache renamed a callback or
- * moved a priority, which would otherwise be a SILENT return to minute-long
- * writes, so it is written to the error log as well.
+ * assumed — `skipped=11` is healthy as of 1.21.0 (ams-cache's 4 callbacks plus
+ * the vodi-child theme's 7 watch-cache hooks; it was `skipped:4` before). Fewer
+ * means a callback was renamed or moved priority, which would otherwise be a
+ * SILENT return to minute-long writes, so it is written to the error log as
+ * well — except a wholly absent theme feature, which is a legitimate state
+ * (the theme was swapped) and simply reports skipped=4.
  */
 /**
  * Count of self-directed HTTP requests short-circuited in THIS request.
@@ -1435,8 +1501,99 @@ add_action( 'rest_api_init', function () {
             }
         }
 
+        /* The vodi-child theme's watch-page purge (deployed 2026-08-24) is the
+         * FIFTH slow save-path callback, and it lives OUTSIDE ams-cache, which
+         * is why `skipped:4` stayed green while episode saves took 139s
+         * (probe-measured 2026-08-26: khi_invalidate_watch_cache_for_post =
+         * 136,648 ms of it). It loops the show's published episodes/movies and
+         * calls scm_purge_cache_uri() PER PAGE — one full stats-tree scan each,
+         * the exact 1.17.x mistake web/cache/purge's 1.18.1 batch fixed. So the
+         * same treatment as ams-cache: removed for token-carrying writes, with
+         * both halves replaced — the cheap per-show version bump is re-hooked
+         * right below (milliseconds), and the sibling-page purge moved into
+         * web/cache/purge's batched sweep (1.21.0), which the dashboard already
+         * calls after every save. wp-admin saves are untouched, as ever.
+         *
+         * A theme WITHOUT the feature is a legitimate state, not a failure:
+         * nothing to remove, nothing hooked, saves already fast — so the
+         * function_exists gate skips silently and the header just reads
+         * skipped=4. A theme that RENAMED the callbacks would leave them
+         * hooked (slow writes return) — that shows as the same skipped=4,
+         * which is why the healthy number is documented as 11. */
+        $theme_targets = array(
+            array( 'save_post',         'khi_invalidate_watch_cache_for_post' ),
+            array( 'delete_post',       'khi_invalidate_watch_cache_for_post' ),
+            array( 'trashed_post',      'khi_invalidate_watch_cache_for_post' ),
+            array( 'untrashed_post',    'khi_invalidate_watch_cache_for_post' ),
+            array( 'added_post_meta',   'khi_invalidate_watch_cache_for_meta_change' ),
+            array( 'updated_post_meta', 'khi_invalidate_watch_cache_for_meta_change' ),
+            array( 'deleted_post_meta', 'khi_invalidate_watch_cache_for_meta_change' ),
+        );
+        foreach ( $theme_targets as $pair ) {
+            list( $hook, $callback ) = $pair;
+            if ( ! function_exists( $callback ) ) {
+                continue;
+            }
+            $priority = has_action( $hook, $callback );
+            if ( false !== $priority ) {
+                remove_action( $hook, $callback, $priority );
+                $removed[] = $callback;
+            } else {
+                $missing[] = $hook . ':' . $callback;
+            }
+        }
+
+        /* Re-hook the CHEAP half of what was just removed: the theme's watch
+         * pages render from their own JSON file cache, keyed on a per-show
+         * version counter — without the bump, a dashboard edit would not show
+         * on the watch page until that cache's 15-minute TTL lapsed. The bump
+         * is one update_post_meta; it was never the slow part. Mirrors the
+         * theme's own two callbacks minus khi_purge_watch_pages_for_show(). */
+        if ( function_exists( 'khi_bump_show_cache_version' ) ) {
+            $bump_for_post = function ( $post_id ) {
+                $post = get_post( $post_id );
+                if ( ! $post ) {
+                    return;
+                }
+                if ( 'tv_show' === $post->post_type ) {
+                    khi_bump_show_cache_version( $post->ID );
+                } elseif ( 'episode' === $post->post_type ) {
+                    $show_id = absint( get_post_meta( $post->ID, '_tv_show_id', true ) );
+                    if ( $show_id ) {
+                        khi_bump_show_cache_version( $show_id );
+                    }
+                } elseif ( 'movie' === $post->post_type ) {
+                    $show_id = absint( get_post_meta( $post->ID, '_khi_tv_show_id', true ) );
+                    if ( $show_id ) {
+                        khi_bump_show_cache_version( $show_id );
+                    }
+                }
+            };
+            add_action( 'save_post', $bump_for_post );
+            add_action( 'delete_post', $bump_for_post );
+            add_action( 'trashed_post', $bump_for_post );
+            add_action( 'untrashed_post', $bump_for_post );
+
+            $bump_for_meta = function ( $meta_id, $object_id, $meta_key, $meta_value ) {
+                $show_id = 0;
+                if ( '_seasons' === $meta_key && 'tv_show' === get_post_type( $object_id ) ) {
+                    $show_id = absint( $object_id );
+                } elseif ( in_array( $meta_key, array( '_tv_show_id', '_tv_show_season_id' ), true ) && 'episode' === get_post_type( $object_id ) ) {
+                    $show_id = '_tv_show_id' === $meta_key
+                        ? absint( $meta_value )
+                        : absint( get_post_meta( $object_id, '_tv_show_id', true ) );
+                }
+                if ( $show_id ) {
+                    khi_bump_show_cache_version( $show_id );
+                }
+            };
+            add_action( 'added_post_meta', $bump_for_meta, 10, 4 );
+            add_action( 'updated_post_meta', $bump_for_meta, 10, 4 );
+            add_action( 'deleted_post_meta', $bump_for_meta, 10, 4 );
+        }
+
         if ( $missing ) {
-            error_log( '[ams-afa] ams-cache warmer NOT removed: ' . implode( ', ', $missing ) );
+            error_log( '[ams-afa] slow save-path callbacks NOT removed: ' . implode( ', ', $missing ) );
         }
 
         add_filter( 'rest_post_dispatch', function ( $response ) use ( $removed ) {
@@ -1658,6 +1815,9 @@ function ams_afa_cache_purge( WP_REST_Request $req ) {
             'label'  => $t['label'],
             'cached' => $cached,
             'purged' => $purged,
+            // false = purge-only: the dashboard's chip must NOT re-warm this
+            // page from the browser (sibling episode pages, potentially 600+).
+            'warm'   => ! isset( $t['warm'] ) || false !== $t['warm'],
         );
     }
 
@@ -1812,6 +1972,41 @@ function ams_afa_cache_purge_targets( $post ) {
                     if ( $movie_url ) {
                         $targets[] = array( 'url' => $movie_url, 'label' => get_the_title( $mid ) );
                     }
+                }
+            }
+
+            /* SIBLING watch pages (1.21.0): every episode page renders the
+             * show's data and the full sibling list, so a change to any family
+             * member leaves every sibling's cached page stale. The theme used
+             * to purge these INSIDE the write — scm_purge_cache_uri() per page,
+             * one full stats-tree scan each, 136s measured for 18 episodes —
+             * which 1.21.0 removes for dashboard writes (see the warmer note).
+             * Here they are just more keys in the one batched sweep. Marked
+             * warm:false so the dashboard's chip purges them WITHOUT re-warming
+             * them from the browser — a show can hold 600+ episodes, and the
+             * theme's own loop never warmed them either; the next visitor pays
+             * one uncached render, exactly as before. */
+            $sibling_ids = get_posts( array(
+                'post_type'              => array( 'episode', 'movie' ),
+                'post_status'            => 'publish',
+                'numberposts'            => -1,
+                'fields'                 => 'ids',
+                'no_found_rows'          => true,
+                'update_post_meta_cache' => false,
+                'update_post_term_cache' => false,
+                'meta_query'             => array(
+                    'relation' => 'OR',
+                    array( 'key' => '_tv_show_id',     'value' => $show_id ),
+                    array( 'key' => '_khi_tv_show_id', 'value' => $show_id ),
+                ),
+            ) );
+            foreach ( $sibling_ids as $sid ) {
+                if ( (int) $sid === (int) $post->ID ) {
+                    continue; // the post's own page is already a warm target above
+                }
+                $sib_url = get_permalink( $sid );
+                if ( $sib_url ) {
+                    $targets[] = array( 'url' => $sib_url, 'label' => get_the_title( $sid ), 'warm' => false );
                 }
             }
         }

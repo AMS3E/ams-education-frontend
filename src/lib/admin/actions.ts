@@ -49,6 +49,10 @@ export interface EditorPayload {
 export interface SaveResult {
   ok: boolean;
   error?: string;
+  /** Autosave only: the session is gone (401). The editor keeps the writer's
+   *  work on screen and says so — it must NOT be bounced to /login mid-write,
+   *  which is what the manual actions' redirect would do. */
+  expired?: boolean;
   /** Present on success — the saved status/slug echoed back from WordPress. */
   status?: string;
   slug?: string;
@@ -57,6 +61,8 @@ export interface SaveResult {
   link?: string;
   /** New post id, on a successful create. */
   id?: number;
+  /** Category ids WordPress actually stored. */
+  categories?: number[];
 }
 
 function toWrite(p: EditorPayload): PostWrite {
@@ -95,20 +101,47 @@ function refreshPublic(status: string | undefined, slug: string | undefined, cat
 
 export async function savePostAction(id: number, payload: EditorPayload): Promise<SaveResult> {
   try {
-    const saved = await updatePost(id, toWrite(payload));
+    const saved = await updatePost(id, toWrite(payload), true);
     refreshPublic(saved.status, saved.slug, payload.categorySlugs);
-    return { ok: true, status: saved.status, slug: saved.slug, link: saved.link };
+    return { ok: true, status: saved.status, slug: saved.slug, link: saved.link, categories: saved.categories };
   } catch (e) {
     if (e instanceof AdminAuthError) redirect("/login");
     return { ok: false, error: e instanceof AdminApiError ? "WordPress rejected the save. Check your permissions and try again." : "Couldn't save. Please try again." };
   }
 }
 
+/**
+ * The editor's AUTOSAVE — the WordPress rule, on WordPress's own terms: a
+ * draft the writer owns is simply overwritten, a live article is never
+ * touched (the editor only calls this while WordPress holds `draft`, or for
+ * an article that does not exist yet). Three deliberate differences from the
+ * manual actions above:
+ *   - the status is FORCED to `draft`: the Status radio's intent (Publish,
+ *     Pending, Private) commits only through the button, exactly as
+ *     wp-admin's autosave "does not update the status" — otherwise picking
+ *     Published and waiting a minute would publish;
+ *   - an expired session is REPORTED, not redirected — a redirect would throw
+ *     the writer out of the editor with their work still on screen;
+ *   - no public revalidation: nothing public changed.
+ * `id` null = first activity on a new article: creates the draft, returns its
+ * id, and the editor switches to editing it in place.
+ */
+export async function autosaveArticleAction(id: number | null, payload: EditorPayload): Promise<SaveResult> {
+  try {
+    const write = { ...toWrite(payload), status: "draft" };
+    const saved = id === null ? await createPost(write) : await updatePost(id, write);
+    return { ok: true, id: saved.id, status: saved.status, slug: saved.slug, link: saved.link, categories: saved.categories };
+  } catch (e) {
+    if (e instanceof AdminAuthError) return { ok: false, expired: true, error: "Your session has expired." };
+    return { ok: false, error: e instanceof AdminApiError ? "WordPress rejected the autosave." : "Autosave failed." };
+  }
+}
+
 export async function createPostAction(payload: EditorPayload): Promise<SaveResult> {
   try {
-    const saved = await createPost(toWrite(payload));
+    const saved = await createPost(toWrite(payload), true);
     refreshPublic(saved.status, saved.slug, payload.categorySlugs);
-    return { ok: true, id: saved.id, status: saved.status, slug: saved.slug, link: saved.link };
+    return { ok: true, id: saved.id, status: saved.status, slug: saved.slug, link: saved.link, categories: saved.categories };
   } catch (e) {
     if (e instanceof AdminAuthError) redirect("/login");
     return { ok: false, error: e instanceof AdminApiError ? "WordPress rejected the new article. Check your permissions and try again." : "Couldn't create the article. Please try again." };

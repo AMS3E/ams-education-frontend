@@ -172,9 +172,9 @@ export default async function SiteHeader() {
               below so the two can never drift. It renders nothing on desktop. */}
           <MobileNav menu={menu} pills={pills} progIcons={progIcons} />
           <Link href="/" className={css({ display: "inline-flex", alignItems: "center", flex: "0 0 auto" })}>
-            {/* Official AMS Economy brand logo (SVG on the site's CDN, `economy` bucket). */}
+            {/* Official AMS Education brand logo (SVG on the site's CDN, `education` bucket). */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="https://s3.ams.com.kh/economy/2022/09/AMS-COLOUR-FULL-H28.svg" width={79} height={28} alt="AMS Economy" />
+            <img src="https://s3.ams.com.kh/education/2022/09/AMS-COLOUR-FULL-H28.svg" width={79} height={28} alt="AMS Education" />
           </Link>
           {/* Section -> {news, reports}, mostly flat — 4 of the 6 sections have
               no topic tier, so the submenu lists their two leaves directly.

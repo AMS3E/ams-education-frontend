@@ -148,24 +148,26 @@ const MATIKA = {
   size: 4,
 } as const;
 
-/** Sections that follow Economy's section-head layout while sourcing their
- * blocks from explicitly curated category IDs. `latestId` intentionally feeds
- * both ព័ត៌មានថ្មីបំផុត and អត្ថបទថ្មីៗ.
+/** Sections that follow Economy's section-head layout while sourcing
+ * `section.updates` from an explicitly curated reports-pair category id —
+ * `updatesTerm`'s fallback (`economySection.reports`) only covers Education's
+ * own six NAV_SECTIONS entries, not Economy's legacy ones below.
  *
- * `news-life-education` and `news-skill-project` are Education's own entries:
- * without one, a section's topNews/reports blocks fell back to TAIL's shared
- * fixed ids (533/243) like every other uncurated landing page, which meant the
- * page pulled trending/report articles from other Education sections
- * (national-education, outstanding-youth talent) instead of its own pair —
- * confirmed via REST content pull, 2026-08-27. */
-const CURATED_SECTION_HEADS: Record<string, { updatesId: number; latestId: number }> = {
-  "news-finance": { updatesId: 577, latestId: 247 },
-  "news-realestate": { updatesId: 579, latestId: 249 },
-  "news-business": { updatesId: 571, latestId: 251 },
-  "news-pr": { updatesId: 581, latestId: 257 },
-  "news-startup-and-innovation": { updatesId: 583, latestId: 253 },
-  "news-life-education": { updatesId: 597, latestId: 245 },
-  "news-skill-project": { updatesId: 605, latestId: 247 },
+ * Used to also carry `latestId`, feeding both New Reports and Popular News —
+ * removed 2026-08-28 once live verification (all 6 Education landing pages)
+ * showed New Reports is simply the page's own term everywhere
+ * (`categoryRefs(term.slug, …)`, see its call site), and Popular News is
+ * never page-specific at all. `latestId` had only ever been added for two of
+ * those six pages (`news-life-education`, `news-skill-project`), which is why
+ * the other four still pulled the wrong content until this fix. */
+const CURATED_SECTION_HEADS: Record<string, { updatesId: number }> = {
+  "news-finance": { updatesId: 577 },
+  "news-realestate": { updatesId: 579 },
+  "news-business": { updatesId: 571 },
+  "news-pr": { updatesId: 581 },
+  "news-startup-and-innovation": { updatesId: 583 },
+  "news-life-education": { updatesId: 597 },
+  "news-skill-project": { updatesId: 605 },
 };
 
 /** One panel of the latest-articles widget: a section and its four articles. */
@@ -386,9 +388,6 @@ export async function getLandingFeed(landing: Landing, newsPage = 1): Promise<La
     : economySection
       ? bySlug.get(economySection.reports)
       : undefined;
-  const latestTerm = curatedHead ? byId.get(curatedHead.latestId) ?? term : undefined;
-  const recentTerm = latestTerm;
-
   const [
     daily, updates, own, leadReports, matika, topNews, reports, recent, popular, summary,
     features, team,
@@ -433,16 +432,23 @@ export async function getLandingFeed(landing: Landing, newsPage = 1): Promise<La
       : Promise.resolve<ArticleRef[]>([]),
     // All six Economy navigation sections, four recent articles per tab.
     Promise.all(NAV_SECTIONS.map((entry) => categoryRefs(entry.news, MATIKA.size))),
-    isSection
-      ? curatedHead
-        ? categoryRefsByIds(String(curatedHead.latestId), TAIL.topNews.size)
-        : tailRefs(TAIL.topNews)
-      : [],
-    isSection
-      ? curatedHead
-        ? categoryRefsByIds(String(curatedHead.latestId), TAIL.reports.size)
-        : tailRefs(TAIL.reports)
-      : [],
+    // Popular News (ព័ត៌មានពេញនិយម) is ALWAYS the generic TAIL feed, even on a
+    // curated page (measured against live /life-education and
+    // /skills-project, 2026-08-28): only New Reports below specializes to the
+    // curated term there — Popular News' articles AND its "see all" link stay
+    // exactly as generic as on every other landing page.
+    isSection ? tailRefs(TAIL.topNews) : [],
+    // New Reports (របាយការណ៍ថ្មី) is the page's OWN term, aggregating
+    // descendants — confirmed against all 6 live landing pages, 2026-08-28:
+    // /children-education (257, leaf) shows 257; /outstanding-youth (249, has
+    // children) shows 249 AND its children 251/253/255; /life-education (245)
+    // and /skills-project (247), both leaves, show themselves. The hardcoded
+    // `TAIL.reports.ids = "243"` this replaced only ever looked right on
+    // /national-and-international-education-update, because that page's own
+    // term IS 243 — everywhere else it showed the wrong section's news. The
+    // "see all" link stays the generic TAIL.reports.slug either way (see
+    // `block()` below) — only the articles are ever page-specific on live.
+    isSection ? categoryRefs(term.slug, TAIL.reports.size) : [],
     // The topic's OWN recents — the block that used to duplicate the ranked list.
     isSection ? [] : categoryRefs(term.slug, RECENT.size),
     tailRefs(TAIL.popular),
@@ -489,20 +495,12 @@ export async function getLandingFeed(landing: Landing, newsPage = 1): Promise<La
               }
             : null,
           topStrip: interestBlock,
-          topNews: recentTerm
-            ? {
-                heading: TAIL.topNews.heading,
-                href: categoryHref(recentTerm.path),
-                items: topNews,
-              }
-            : block("topNews", topNews),
-          reports: latestTerm
-            ? {
-                heading: TAIL.reports.heading,
-                href: categoryHref(latestTerm.path),
-                items: reports,
-              }
-            : block("reports", reports),
+          // Neither block's "see all" ever specializes on live, even when the
+          // articles behind it do (reports, below) — both link genuinely to
+          // the generic TAIL slug (all-news/all-report) on every landing page,
+          // curated or not. Measured against live, 2026-08-28.
+          topNews: block("topNews", topNews),
+          reports: block("reports", reports),
           popular: popularShort,
           summary,
         }

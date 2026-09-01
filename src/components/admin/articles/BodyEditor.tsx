@@ -27,10 +27,6 @@ export interface BodyEditorHandle {
   getHtml(): string;
   /** True once the user has actually edited the body in this session. */
   isDirty(): boolean;
-  /** Replace the whole document — the local-backup restore path. Counts as an
-   *  edit (marks the body dirty), because the restored content genuinely
-   *  differs from what WordPress holds. */
-  setHtml(html: string): void;
 }
 
 // The ProseMirror contenteditable itself. Class must be a plain string (TipTap
@@ -103,10 +99,6 @@ export default function BodyEditor({
     register({
       getHtml: () => (editor.isEmpty ? "" : editor.getHTML()),
       isDirty: () => dirtyRef.current,
-      setHtml: (html) => {
-        editor.commands.setContent(html);
-        dirtyRef.current = true;
-      },
     });
     return () => register(null);
   }, [editor, register]);

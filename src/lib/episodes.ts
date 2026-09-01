@@ -78,11 +78,9 @@ const toKhmerDigits = (n: number) => String(n).replace(/\d/g, (d) => KHMER_DIGIT
 export const seasonOf = (ep: Episode) => numberTuple(ep.episodeNumber)[0] ?? 0;
 
 export interface Season {
-  /** The season number as labelled, 0 for unlabelled episodes. */
+  /** The season number as labelled; unlabelled episodes follow Eco and use 1. */
   number: number;
-  /** "រដូវកាល ១", or "គ្មានលេខរដូវកាល" for the unlabelled group — never
-   *  "វគ្គទាំងអស់" ("all seasons"), which is the wrong word for this group and
-   *  not a convention this site uses. */
+  /** "រដូវកាលទី ១" — the same presentation used by the Eco program pages. */
   name: string;
   /** Ascending, same order fetchShowEpisodes returns. */
   episodes: Episode[];
@@ -94,7 +92,10 @@ export interface Season {
 export function groupSeasons(episodes: Episode[]): Season[] {
   const byNumber = new Map<number, Episode[]>();
   for (const ep of episodes) {
-    const n = seasonOf(ep);
+    // Eco treats an episode without an explicit Sx label as part of the first
+    // season. Merge it into season 1 instead of exposing incomplete CMS data
+    // to visitors.
+    const n = seasonOf(ep) || 1;
     const group = byNumber.get(n);
     if (group) group.push(ep);
     else byNumber.set(n, [ep]);
@@ -103,7 +104,7 @@ export function groupSeasons(episodes: Episode[]): Season[] {
     .sort((a, b) => b[0] - a[0])
     .map(([number, eps]) => ({
       number,
-      name: number > 0 ? `រដូវកាល ${toKhmerDigits(number)}` : "គ្មានលេខរដូវកាល",
+      name: `រដូវកាលទី ${toKhmerDigits(number)}`,
       episodes: eps,
     }));
 }
@@ -225,9 +226,9 @@ function toCard(ep: Episode, programSlug: string): HomeCard {
 /** One season's worth of episode cards for the program overview's season browser
  *  (the tab strip below វគ្គថ្មីៗ). */
 export interface SeasonCards {
-  /** The season number as labelled, 0 for the unlabelled group. */
+  /** The season number as labelled; unlabelled episodes are folded into 1. */
   number: number;
-  /** "រដូវកាល ១", or "គ្មានលេខរដូវកាល" for the unlabelled group — the tab label. */
+  /** "រដូវកាលទី ១" — the tab label. */
   name: string;
   /** Ascending (E1 first), capped at SEASON_CARD_CAP. */
   cards: HomeCard[];
@@ -242,8 +243,8 @@ const SEASON_CARD_CAP = 30;
 
 /** A show's episodes grouped into per-season card lists for the overview browser.
  *
- *  Tabs read oldest→newest (រដូវកាល ១, ២, …) with the unlabelled group
- *  last; groupSeasons returns them newest-first, so the order is flipped here.
+ *  Tabs read oldest→newest (រដូវកាលទី ១, ២, …); groupSeasons returns them
+ *  newest-first, so the order is flipped here.
  *  Within a season the cards keep the show's own ascending order. */
 export function toSeasonCards(episodes: Episode[], programSlug: string): SeasonCards[] {
   return groupSeasons(episodes)

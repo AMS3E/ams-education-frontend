@@ -6,7 +6,7 @@ export const revalidate = false;
 
 export const metadata: Metadata = {
   title: "កម្មវិធីទាំងអស់",
-  description: "ជ្រើសរើសកម្មវិធី និងវគ្គវីដេអូរបស់ AMS Infotainment។",
+  description: "ជ្រើសរើសកម្មវិធី និងវគ្គវីដេអូរបស់ AMS Education។",
 };
 
 export default async function ProgramsPage() {

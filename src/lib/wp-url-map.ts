@@ -24,7 +24,7 @@ import { programHref } from "@/lib/programs";
  * stray trailing slash on NEXT_PUBLIC_WP_ORIGIN silently breaks that comparison forever —
  * no error, the hero just never receives its height and collapses after the 10s timeout.
  */
-export const WP_ORIGIN = (process.env.NEXT_PUBLIC_WP_ORIGIN ?? "https://economy.ams.com.kh").replace(/\/+$/, "");
+export const WP_ORIGIN = (process.env.NEXT_PUBLIC_WP_ORIGIN ?? "https://education.ams.com.kh").replace(/\/+$/, "");
 
 const stripSlash = (p: string) => p.replace(/\/+$/, "") || "/";
 

@@ -46,7 +46,7 @@ export interface StaticPage {
   html: string;
 }
 
-/** "https://infotainment.ams.com.kh/terms-conditions/" -> "terms-conditions" */
+/** "https://education.ams.com.kh/terms-conditions/" -> "terms-conditions" */
 function toPath(link: string): string {
   return link.replace(/^https?:\/\/[^/]+/, "").replace(/^\/+|\/+$/g, "");
 }

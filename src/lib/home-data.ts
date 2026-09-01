@@ -1,4 +1,4 @@
-// Data for the AMS Infotainment homepage.
+// Data for the AMS Education homepage.
 //
 // This is a faithful port of the `renderVals()` logic from the original design
 // mock. Everything here is deterministic (no randomness), so it can be computed

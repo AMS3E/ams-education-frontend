@@ -7,7 +7,7 @@ import { css } from "@/styled-system/css";
 import { ac } from "./tokens";
 import { Icon } from "./icons";
 import { logoutAction } from "@/lib/auth/actions";
-import { fetchMyAvatar } from "@/lib/admin/screen-actions";
+import { fetchMyChip } from "@/lib/admin/screen-actions";
 
 export interface AccountUser {
   name: string;
@@ -15,9 +15,17 @@ export interface AccountUser {
   roleLabel: string;
 }
 
-/** Query key shared with ProfileForm, which pushes the new URL into the cache
- *  on save — that's what updates this chip without a reload. */
-export const MY_AVATAR_QUERY_KEY = ["my-avatar"] as const;
+/** What the chip fetches after paint: the picture and the live role label.
+ *  `null` in either slot means "use the fallback" — initials, or the role the
+ *  session cookie recorded at login. */
+export interface ChipData {
+  url: string | null;
+  roleLabel: string | null;
+}
+
+/** Query key shared with ProfileForm, which pushes the new picture URL into
+ *  the cache when it changes — that's what updates this chip without a reload. */
+export const MY_CHIP_QUERY_KEY = ["my-chip"] as const;
 
 /** Identity and sign-out, at the foot of the sidebar.
  *
@@ -28,13 +36,14 @@ export default function AccountMenu({ user }: { user: AccountUser }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
 
-  // The layout's session cookie carries no avatar (it's written once at login),
-  // so the picture is fetched client-side after paint. staleTime Infinity: the
-  // chip mounts once per hard load, and the only thing that changes the answer
-  // mid-session is the profile screen — which updates this cache directly.
-  const { data: avatar } = useQuery({
-    queryKey: MY_AVATAR_QUERY_KEY,
-    queryFn: () => fetchMyAvatar(),
+  // The layout's session cookie carries no avatar and only the login-time role
+  // (it's written once at login), so both are fetched client-side after paint.
+  // staleTime Infinity: the chip mounts once per hard load, and the only thing
+  // that changes the answer mid-session is the profile screen — which updates
+  // this cache directly.
+  const { data: chip } = useQuery<ChipData>({
+    queryKey: MY_CHIP_QUERY_KEY,
+    queryFn: () => fetchMyChip(),
     staleTime: Infinity,
   });
 
@@ -79,10 +88,10 @@ export default function AccountMenu({ user }: { user: AccountUser }) {
           _hover: { background: "var(--colors-admin-surface-hover)", borderColor: "var(--colors-admin-border)" },
           _focusVisible: { outline: "2px solid var(--colors-admin-focus)", outlineOffset: "2px" },
         })}>
-        {avatar?.url ? (
+        {chip?.url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={avatar.url}
+            src={chip.url}
             alt=""
             className={css({ width: "30px", height: "30px", borderRadius: "9px", objectFit: "cover", flex: "none" })}
             style={{ background: ac.accentTint }}
@@ -101,7 +110,7 @@ export default function AccountMenu({ user }: { user: AccountUser }) {
             {user.name}
           </span>
           <span className={css({ fontSize: "11px" })} style={{ color: ac.muted }}>
-            {user.roleLabel}
+            {chip?.roleLabel ?? user.roleLabel}
           </span>
         </span>
         <Icon name='chevronDown' size={14} strokeWidth={2} style={{ color: ac.faint, flex: "none", transform: open ? "rotate(180deg)" : undefined }} />

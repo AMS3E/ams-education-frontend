@@ -19,6 +19,7 @@
 import { useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { css } from "@/styled-system/css";
 import { Icon } from "../icons";
+import { BRAND_MARK } from "../brand";
 import { SITE_NAME, SITE_URL } from "@/lib/site";
 
 /* ---- Yoast's own light palette (literals on purpose — see header) ---- */
@@ -164,7 +165,7 @@ function Favicon({ size }: { size: number }) {
       style={{ width: size, height: size, background: "#f1f3f4" }}
     >
       {/* eslint-disable-next-line @next/next/no-img-element -- static asset at favicon size */}
-      <img src="/ams-logo.svg" alt="" width={Math.round(size * 0.64)} height={Math.round(size * 0.64)} className={css({ borderRadius: "4px", display: "block" })} />
+      <img src={BRAND_MARK} alt="" width={Math.round(size * 0.64)} height={Math.round(size * 0.64)} className={css({ borderRadius: "4px", display: "block" })} />
     </span>
   );
 }
@@ -321,7 +322,7 @@ export default function YoastMetabox({
   const mounted = useMounted();
 
   // What the public site will actually render (mirrors mapArticle's fallbacks).
-  const effectiveTitle = seoTitle.trim() || `${headline.trim() || "(untitled)"} — AMS Infotainment`;
+  const effectiveTitle = seoTitle.trim() || `${headline.trim() || "(untitled)"} — AMS Education`;
   const effectiveDesc = metaDesc.trim() || excerpt.trim() || "Google will improvise a snippet from the article body.";
 
   // Measured on the client only (canvas); 0 until mounted.
@@ -483,7 +484,7 @@ export default function YoastMetabox({
             style={fieldStyle}
             value={seoTitle}
             onChange={(e) => onSeoTitleChange(e.target.value)}
-            placeholder={`${headline.trim() || "(untitled)"} — AMS Infotainment`}
+            placeholder={`${headline.trim() || "(untitled)"} — AMS Education`}
           />
           <LengthBar ratio={titlePx / TITLE_LIMIT_PX} verdict={titleVerdict} />
         </div>

@@ -16,7 +16,7 @@
  * www, 644), THEN purge AMS Cache. If this header is live while the plugin is
  * off, NO Damrei zone serves. Design record: frontend repo,
  * docs/wp-ads/README.md sections 12-13. Kept here: the Damrei video in-view
- * unit (not part of the plugin's stack), the ads.amscloud.cc loader, pixels,
+ * unit (not part of the plugin's stack), the ads.ams.com.kh loader, pixels,
  * and the inert gax-inpage-async-* placeholder divs.
  */
 
@@ -75,7 +75,7 @@
     <!-- End Meta Pixel Code -->
 
     <!--ads reviene script -->
-    <script async src="//ads.amscloud.cc/www/delivery/asyncjs.php"></script>
+    <script async src="//ads.ams.com.kh/www/delivery/asyncjs.php"></script>
 
     <script>
         function loadScript(a) {

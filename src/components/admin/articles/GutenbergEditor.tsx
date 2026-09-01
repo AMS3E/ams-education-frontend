@@ -35,7 +35,7 @@ const AppendableBlockList = BlockList as unknown as React.ComponentType<{
   className?: string;
   renderAppender?: React.ComponentType | false;
 }>;
-import { useDispatch } from "@wordpress/data";
+import { useDispatch, useRegistry } from "@wordpress/data";
 import { ShortcutProvider } from "@wordpress/keyboard-shortcuts";
 // Side-effect import: this is what registers the core text formats (bold,
 // italic, link, inline code, …). Without it the block toolbar renders with no
@@ -50,6 +50,9 @@ import "@wordpress/block-editor/build-style/style.css";
 import "@wordpress/block-editor/build-style/content.css";
 import "@wordpress/block-library/build-style/style.css";
 import "@wordpress/block-library/build-style/editor.css";
+// The generic `.has-text-align-*` rules live in common.css, NOT style.css —
+// without it the canvas ignores the "Align text" control it now offers.
+import "@wordpress/block-library/build-style/common.css";
 // (@wordpress/format-library's stylesheet is NOT importable — its package
 // `exports` map omits ./build-style/*, unlike block-library's. The file is on
 // disk but unreachable, and the formatting controls work without it; only the
@@ -136,8 +139,7 @@ const ALLOWED_BLOCKS = [
 // warning and the second registration wins.
 let blocksRegistered = false;
 
-/** Undo-stack depth. Module scope, not component scope: the registered handle's
- *  setHtml pushes history too, and the handle effect must not grow deps. */
+/** Undo-stack depth. */
 const HISTORY_LIMIT = 50;
 /**
  * Clicking the canvas OUTSIDE any block clears the selection — which is what
@@ -146,9 +148,11 @@ const HISTORY_LIMIT = 50;
  * (measured: clicking below the last block and in the side margin both left
  * the selection and the toolbar in place).
  *
- * @wordpress/block-editor has `useBlockSelectionClearer` for exactly this, but
- * it is INTERNAL — not re-exported from the package root, only imported by
- * block-list and block-canvas — so this is the same behaviour written out.
+ * @wordpress/block-editor does export `useBlockSelectionClearer` (16.1.0 — an
+ * earlier note here called it internal), but it only clears when the wrapper
+ * element ITSELF is the click target, and the side margin and the space below
+ * the last block are nested divs. So the behaviour is written out here — with
+ * the one guard WP's native listener gets for free (see onMouseDown).
  *
  * It MUST be a child of BlockEditorProvider: the provider stands up its own
  * registry, so a dispatch resolved in the parent component would target a
@@ -171,6 +175,15 @@ function CanvasSelectionClearer({
   const onMouseDown = (e: React.MouseEvent) => {
     const t = e.target as HTMLElement | null;
     if (!t) return;
+    // React events bubble up the REACT tree, which is not the DOM tree: a
+    // block's inspector controls are rendered by the block itself (inside this
+    // canvas) and portaled into the sidebar — InspectorControls is a
+    // bubblesVirtually slot, i.e. createPortal. So a click on a Block-tab
+    // field arrived HERE and cleared the very block it was editing (measured:
+    // every fill'd control in the inspector, HTML anchor and CSS class first;
+    // the panel chrome the inspector renders itself was fine). Only what is
+    // physically inside the canvas column is ours to judge.
+    if (!e.currentTarget.contains(t)) return;
     // Inside a block, or inside WP's own floating UI — a click on the toolbar,
     // a popover or the inserter is still "working on this block".
     if (t.closest(".block-editor-block-list__block")) return;
@@ -185,6 +198,41 @@ function CanvasSelectionClearer({
       {children}
     </div>
   );
+}
+
+/**
+ * wp-admin's rule for the two tabs (edit-post's block-selection listener):
+ * selecting a block brings `Block` up, clearing the selection goes back to
+ * `Post`. The tab buttons still override by hand in between. A multi-
+ * selection counts as a selection — the inspector shows a panel for it.
+ *
+ * Driven from a store subscription rather than useSelect + effect: the tab
+ * only has to move at the moment the selection CHANGES, and the repo's lint
+ * (React compiler) rejects a synchronous setState inside an effect. Seeded
+ * with the selection at mount so an already-selected block does not flip the
+ * tab on its own.
+ *
+ * Same placement rule as CanvasSelectionClearer: a child of
+ * BlockEditorProvider, or useRegistry() hands back the parent registry, which
+ * has no block-editor store.
+ */
+function SelectionTabSync({ setTab }: { setTab: (tab: SidebarTab) => void }) {
+  const registry = useRegistry();
+  useEffect(() => {
+    const { getSelectedBlockClientId, hasMultiSelection } = registry.select("core/block-editor") as {
+      getSelectedBlockClientId: () => string | null;
+      hasMultiSelection: () => boolean;
+    };
+    const current = () => getSelectedBlockClientId() ?? (hasMultiSelection() ? "multi" : null);
+    let last = current();
+    return registry.subscribe(() => {
+      const now = current();
+      if (now === last) return;
+      last = now;
+      setTab(now === null ? "post" : "block");
+    }, "core/block-editor");
+  }, [registry, setTab]);
+  return null;
 }
 
 function ensureBlocks() {
@@ -342,6 +390,15 @@ export default function GutenbergEditor({
       // Both halves live in media-upload-bridge.tsx.
       mediaUpload: amsMediaUpload,
       canLockBlocks: false,
+      // Theme.json-style feature flags. BlockEditorProvider merges in NO
+      // defaults (wp-admin gets the classic-theme defaults from the server),
+      // so every block-support UI is hidden until enabled here — this is why
+      // paragraphs had no "Align text" control while wp-admin showed one.
+      // `textAlign` puts it back on paragraph/heading/list toolbars; the rest
+      // of typography (font size, spacing, …) stays deliberately off.
+      // Wide/full block alignment stays off too: the public article column is
+      // fixed-width, so `alignwide` markup would be a silent no-op.
+      __experimentalFeatures: { typography: { textAlign: true } },
       // THIS is what puts "Browse all" under the canvas's quick inserter. Read
       // the source, not the docs: QuickInserter renders that button only when
       // `settings.__experimentalSetIsInserterOpened` exists, because the button
@@ -359,22 +416,6 @@ export default function GutenbergEditor({
       // would write for the same document.
       getHtml: () => (blocksRef.current.length ? serialize(blocksRef.current) : ""),
       isDirty: () => dirtyRef.current,
-      // The local-backup restore path. One persistent-history step — commit()'s
-      // body inlined (calling commit would put a per-render function in this
-      // effect's deps and re-register the handle every render), reading only
-      // refs and stable setters — so a mistaken restore of the BODY is a
-      // single Undo away. Marks dirty: restored content genuinely differs
-      // from what WordPress holds, and the next save must carry it.
-      setHtml: (html: string) => {
-        const h = historyRef.current;
-        h.past.push(blocksRef.current);
-        if (h.past.length > HISTORY_LIMIT) h.past.shift();
-        h.future = [];
-        setCanUndo(true);
-        setCanRedo(false);
-        dirtyRef.current = true;
-        setBlocks(html ? parse(html) : newDocumentBlocks());
-      },
     };
     register(handle);
     // DEV ONLY: the same handle, reachable from a test harness. It is the only
@@ -409,6 +450,7 @@ export default function GutenbergEditor({
             // Cmd+Z takes the image and both of its spacers back together.
             onChange={(next: Block[]) => commit(applyMediaSpacers(next, blocks), blocks)}
           >
+            <SelectionTabSync setTab={setSidebarTab} />
             {/* ONE band, spanning the whole editor above both columns — the
                 anatomy wp-admin uses. It is fixed-height and never wraps: the
                 old version mixed 30px controls with WP's 40px toolbar buttons
@@ -766,12 +808,12 @@ const inserterPanelClass = css({
   flexDirection: "column",
 });
 
-/** The two tabs, in wp-admin's order.
- *
- *  Selecting a block deliberately does NOT switch to `Block`. wp-admin can get
- *  away with it because its sidebar holds little the writer is mid-way through;
- *  ours holds a category filter with text in it and a tag typeahead with a menu
- *  open, and yanking the panel out from under either is worse than one click. */
+/** The two tabs, in wp-admin's order. The active tab FOLLOWS the selection —
+ *  see SelectionTabSync — and the buttons override it by hand. (An earlier
+ *  version deliberately did not follow it, to protect a half-typed category
+ *  filter in the Post panel; but both panels stay mounted and only toggle
+ *  `display`, so nothing there is lost by switching, and the editors expect
+ *  wp-admin's behaviour: click a block, see its settings.) */
 type SidebarTab = "post" | "block";
 const SIDEBAR_TABS: { key: SidebarTab; label: string }[] = [
   { key: "post", label: "Post" },

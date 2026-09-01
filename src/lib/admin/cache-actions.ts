@@ -29,6 +29,10 @@ export interface LegacyPurgePage {
    *  means nobody had visited that page since its last expiry. */
   cached: boolean;
   purged: boolean;
+  /** false = purge-only (afa 1.21.0's sibling episode pages, potentially
+   *  600+): if a browser re-warm step is ever reintroduced, it must skip
+   *  these or a single save would stampede the shared box. */
+  warm?: boolean;
 }
 
 export interface LegacyPurgeResult {

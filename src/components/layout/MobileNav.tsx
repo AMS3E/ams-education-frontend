@@ -298,7 +298,7 @@ export default function MobileNav({ menu, pills, progIcons }: Props) {
           <div className={drawerHead}>
             {/* Same brand mark as the desktop bar. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="https://s3.ams.com.kh/economy/2022/09/AMS-COLOUR-FULL-H28.svg" width={79} height={28} alt="AMS Economy" />
+            <img src="https://s3.ams.com.kh/education/2022/09/AMS-COLOUR-FULL-H28.svg" width={79} height={28} alt="AMS Education" />
             <button ref={closeRef} type="button" aria-label="បិទម៉ឺនុយ" onClick={closeDrawer} className={closeBtn}>
               <CloseIcon size={24} />
             </button>

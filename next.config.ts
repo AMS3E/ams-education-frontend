@@ -25,11 +25,11 @@ const nextConfig: NextConfig = {
     },
   },
   images: {
-    // economy.ams.com.kh resolves to 127.0.0.1/::1 in local dev (hosts file:
-    // local WordPress), which Next 16's image optimizer refuses to fetch by
-    // default (SSRF guard — "resolved to private ip"). Dev-only: production
-    // DNS for economy.ams.com.kh is a real public host, so this stays off in
-    // that build.
+    // economy.ams.com.kh (and, same reason, education.ams.com.kh) resolves to
+    // 127.0.0.1/::1 in local dev (hosts file: local WordPress), which Next
+    // 16's image optimizer refuses to fetch by default (SSRF guard —
+    // "resolved to private ip"). Dev-only: production DNS for both is a real
+    // public host, so this stays off in that build.
     dangerouslyAllowLocalIP: process.env.NODE_ENV === "development",
     // The homepage uses decorative Unsplash photos that gracefully fall back
     // to a solid color if they fail to load (see CoverImage).
@@ -44,15 +44,33 @@ const nextConfig: NextConfig = {
         hostname: "s3.ams.com.kh",
       },
       {
-        // WordPress uploads (ad creatives from the `advertise` endpoint).
-        // Some ad creatives are stored with a plain http:// source_url, so
-        // both protocols must be allowed or next/image rejects the src.
+        // WordPress uploads (ad creatives from the `advertise` endpoint, and
+        // the handful of attachments never offloaded to the S3 CDN — see
+        // ams-fast-api/fast.php's AMS_FAST_CDN_BASE comment: not every
+        // attachment is on s3.ams.com.kh, some still serve straight from
+        // wp-content/uploads). Some ad creatives are stored with a plain
+        // http:// source_url, so both protocols must be allowed or next/image
+        // rejects the src.
         protocol: "https",
         hostname: "economy.ams.com.kh",
       },
       {
         protocol: "http",
         hostname: "economy.ams.com.kh",
+      },
+      {
+        // This site's own WordPress origin — missing until 2026-08-28, when a
+        // category listing containing a never-offloaded image
+        // (education.ams.com.kh/wp-content/uploads/...) crashed that page's
+        // whole server render ("hostname is not configured under images"),
+        // which silently falls back to client-only rendering with an empty
+        // article list rather than a visible error.
+        protocol: "https",
+        hostname: "education.ams.com.kh",
+      },
+      {
+        protocol: "http",
+        hostname: "education.ams.com.kh",
       },
       {
         // Author avatars — WordPress serves them from Gravatar (ក្រុមការងារ).

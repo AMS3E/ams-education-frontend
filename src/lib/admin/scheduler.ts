@@ -19,7 +19,7 @@
 // up to a whole minute. A 5-minute cron is 8,640 runs — 8,640 minutes — several
 // times the allowance before the deploy workflows take their share.
 
-const BASE = process.env.API_BASE_URL ?? "https://infotainment.ams.com.kh/wp-json";
+const BASE = process.env.API_BASE_URL ?? "https://education.ams.com.kh/wp-json";
 
 /** Our OWN origin, for the revalidate call below. This loopback is fine — it is
  *  WordPress's host that cannot call itself, not ours. */

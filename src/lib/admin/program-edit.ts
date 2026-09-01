@@ -8,11 +8,15 @@
 // edit_published_movies, …) that map_meta_cap demands — and return the curated
 // meta set the plugin registered for REST in v1.7.1.
 //
-// v1 write scope: title, description (a program's post content is plain
-// text/markup from the classic metabox era — no Gutenberg blocks to flatten,
-// so it round-trips losslessly, unlike article bodies), release date,
-// broadcast schedule, and the video source (movies only: a tv_show carries no
-// video of its own — its registered meta is just release/schedule/backdrop).
+// Write scope: title, description (post_EXCERPT — MasVideos' "Movie short
+// description", which is what /web/program serves as the public page's
+// description; verified live on #221836, 2026-08-27), release date,
+// broadcast schedule, poster and backdrop. The video source and post_content
+// are READ but never written (both cut from the editor on the owner's
+// request, 2026-08-27 — see docs/session-log.md S47): post_content is a
+// Gutenberg columns + [epsode-carousel] layout canvas the old WP-rendered
+// page depends on, not prose, and the _movie_* video meta stays managed in
+// WordPress.
 // Status, poster/backdrop and the `_seasons` repeater are out of scope: status
 // stays whatever it is, artwork waits on the media picker, seasons stay in
 // WordPress.
@@ -49,6 +53,7 @@ interface RawEditProgram {
   slug?: string;
   link?: string;
   title?: { raw?: string; rendered?: string };
+  excerpt?: { raw?: string };
   content?: { raw?: string };
   featured_media?: number;
   meta?: Record<string, unknown>;
@@ -75,8 +80,14 @@ export interface EditableProgram {
    *  companion show, episodes). */
   slug: string;
   title: string;
-  /** content.raw — the description shown on the public program page. */
+  /** excerpt.raw as plain text — MasVideos' "Movie short description", the
+   *  text the public program page shows (/web/program serves get_the_excerpt).
+   *  NOT post_content — see `body`. */
   description: string;
+  /** content.raw, READ-ONLY in the editor. On newer programs this is the old
+   *  WP page's layout canvas (Gutenberg columns + [epsode-carousel]); shown so
+   *  editors know it exists, never written so it can't be mangled. */
+  body: string;
   status: string;
   /** WordPress permalink, for the top bar's View button. */
   link: string;
@@ -112,7 +123,7 @@ async function fetchOne(type: ProgramType, id: number): Promise<RawEditProgram |
     const { data } = await adminFetch<RawEditProgram>(`/wp/v2/${type}/${id}`, {
       query: {
         context: "edit",
-        _fields: "id,status,slug,link,title,content,featured_media,meta,_links,_embedded",
+        _fields: "id,status,slug,link,title,excerpt,content,featured_media,meta,_links,_embedded",
         _embed: "wp:featuredmedia",
       },
     });
@@ -132,7 +143,8 @@ function toEditable(raw: RawEditProgram, type: ProgramType): EditableProgram {
     type,
     slug: raw.slug ?? "",
     title: decodeEntities(raw.title?.raw ?? "").trim(),
-    description: raw.content?.raw ?? "",
+    description: excerptToText(raw.excerpt?.raw ?? ""),
+    body: raw.content?.raw ?? "",
     status: raw.status,
     link: raw.link ?? "",
     posterThumb:
@@ -178,7 +190,10 @@ export async function getProgramForEditFast(id: number, token?: string): Promise
       type: ProgramType;
       slug: string;
       title: string;
-      description: string;
+      /** post_excerpt. ABSENT from ams-fast-api < 1.8.4 — see the guard below. */
+      excerpt?: string;
+      /** post_content (pre-1.8.4 builds sent it as `description`). */
+      body?: string;
       status: string;
       link: string;
       posterThumb: string;
@@ -197,12 +212,21 @@ export async function getProgramForEditFast(id: number, token?: string): Promise
   }
 
   const d = body.data;
+  // A fast-api build older than 1.8.4 has no `excerpt`. Reading it as ""
+  // would BLANK the short description on the editor's next save, so a stale
+  // plugin hands this one read to WP REST — directly, not by throwing: an old
+  // build is not a fast-path failure and must not trip the breaker.
+  if (typeof d.excerpt !== "string") {
+    console.warn("[fast] program: plugin predates `excerpt` (needs ams-fast-api 1.8.4) — reading via WP REST");
+    return getProgramForEdit(id);
+  }
   return {
     id: d.id,
     type: d.type,
     slug: d.slug ?? "",
     title: decodeEntities(d.title ?? "").trim(),
-    description: d.description ?? "",
+    description: excerptToText(d.excerpt),
+    body: d.body ?? "",
     status: d.status,
     link: d.link ?? "",
     posterThumb: d.posterThumb ?? "",
@@ -230,6 +254,8 @@ export const readProgramForEdit = cache(
 /** The fields the editor writes back. `releaseTs` is already converted (0 clears). */
 export interface ProgramWrite {
   title: string;
+  /** post_excerpt — the public page's description. post_content is never
+   *  written (see the header). */
   description: string;
   releaseTs: number;
   schedule: string;
@@ -237,8 +263,6 @@ export interface ProgramWrite {
   posterId: number;
   /** Backdrop attachment id (_vodi_*_bg_image); 0 = clear. */
   backdropId: number;
-  /** Present for movies only. */
-  video?: { choice: string; url: string; embed: string };
   /** Omit to leave the status untouched (the plain Save). Setting it is what
    *  puts a program on, or takes it off, the public site. */
   status?: "draft" | "publish";
@@ -261,16 +285,11 @@ export async function updateProgram(
         _tv_show_run_time: patch.schedule,
         _vodi_tv_show_bg_image: patch.backdropId,
       };
-  if (movie && patch.video) {
-    meta._movie_choice = patch.video.choice;
-    meta._movie_url_link = patch.video.url;
-    meta._movie_embed_content = patch.video.embed;
-  }
   const { data } = await adminFetch<{ id: number; status: string }>(`/wp/v2/${type}/${id}`, {
     method: "POST",
     body: {
       title: patch.title,
-      content: patch.description,
+      excerpt: patch.description,
       featured_media: patch.posterId,
       ...(patch.status ? { status: patch.status } : {}),
       meta,
@@ -308,18 +327,21 @@ export interface ProgramCreateWrite {
   /** draft = dashboard-only; publish = live on the public site (the dynamic
    *  registry routes any published program). */
   status: "draft" | "publish";
+  /** post_excerpt — see ProgramWrite.description. */
   description: string;
   releaseTs: number;
   schedule: string;
   posterId: number;
   backdropId: number;
-  video?: { choice: string; url: string; embed: string };
 }
 
 // WP-side save hooks can be genuinely slow — a PUBLISH-path save was measured
-// at ~79s (tv_show create; draft saves run the normal ~5s). A 120s deadline
-// means a slow hook is a slow success, not an abort.
-const CREATE_TIMEOUT = 120_000;
+// at ~79s (tv_show create; draft saves run the normal ~5s), and 120s proved
+// too tight for real writes: an episode DELETE completed at ~166s and an
+// episode edit-save overran 120s outright (both 2026-08-26), each surfacing
+// as a TimeoutError for a write that then succeeded. 300s means a slow hook
+// is a slow success, not an abort.
+const CREATE_TIMEOUT = 300_000;
 
 /**
  * Create a program = its `movie` post ONLY. The companion `tv_show` (episode
@@ -334,18 +356,13 @@ export async function createProgram(w: ProgramCreateWrite): Promise<{ id: number
     _movie_run_time: w.schedule,
     _vodi_movie_bg_image: w.backdropId,
   };
-  if (w.video) {
-    meta._movie_choice = w.video.choice;
-    meta._movie_url_link = w.video.url;
-    meta._movie_embed_content = w.video.embed;
-  }
 
   const { data: movie } = await adminFetch<{ id: number }>(`/wp/v2/movie`, {
     method: "POST",
     body: {
       title: w.title,
       slug: w.slug,
-      content: w.description,
+      excerpt: w.description,
       status: w.status,
       ...(w.posterId ? { featured_media: w.posterId } : {}),
       meta,
@@ -410,6 +427,10 @@ export interface EpisodeCreateWrite {
   releaseTs: number;
   /** Free text, e.g. "27:18 នាទី". */
   runTime: string;
+  /** post_excerpt — the "Description" box under the player on the episode
+   *  page. Both sites print the EXCERPT there, not the content body
+   *  (verified on a Daily Feed episode where the two differ). Plain text. */
+  description: string;
   /** Thumbnail attachment id; 0 = none. */
   thumbId: number;
 }
@@ -428,6 +449,7 @@ export async function createEpisode(w: EpisodeCreateWrite): Promise<{ id: number
       title: w.title,
       slug: w.slug,
       status: "publish",
+      excerpt: w.description,
       ...(w.thumbId ? { featured_media: w.thumbId } : {}),
       meta: {
         _tv_show_id: w.showId,
@@ -489,10 +511,27 @@ export function parseEpisodeLabel(label: string): { season: number; episode: num
   return { season: 0, episode: bare ? Number(bare[1]) : 0 };
 }
 
+/** The excerpt as an editor should see it. wp-admin's block editor stores the
+ *  excerpt WITH its <p> wrappers (the déjà vu episode reads "<p>…</p>" raw),
+ *  which a textarea must not show. Paragraph breaks become blank lines and
+ *  <br> a newline; anything else (rare inline markup) is left alone. Writing
+ *  the plain text back renders identically: every excerpt surface — REST's
+ *  `rendered`, Vodi's short description — runs wpautop, which re-wraps
+ *  blank-line-separated text in <p>. */
+export function excerptToText(raw: string): string {
+  return raw
+    .replace(/\r\n?/g, "\n")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>\s*<p\b[^>]*>/gi, "\n\n")
+    .replace(/<\/?p\b[^>]*>/gi, "")
+    .trim();
+}
+
 interface RawEditEpisode {
   id: number;
   slug?: string;
   title?: { raw?: string };
+  excerpt?: { raw?: string };
   featured_media?: number;
   meta?: Record<string, unknown>;
   _embedded?: {
@@ -513,6 +552,8 @@ export interface EditableEpisode {
   season: number;
   episode: number;
   title: string;
+  /** The excerpt as typed (the Description box), "" when blank. */
+  description: string;
   videoUrl: string;
   /** "YYYY-MM-DD" (Phnom Penh) or "". */
   releaseDate: string;
@@ -527,7 +568,7 @@ export async function getEpisodeForEdit(id: number): Promise<EditableEpisode | n
     const { data } = await adminFetch<RawEditEpisode>(`/wp/v2/episode/${id}`, {
       query: {
         context: "edit",
-        _fields: "id,slug,title,featured_media,meta,_links,_embedded",
+        _fields: "id,slug,title,excerpt,featured_media,meta,_links,_embedded",
         _embed: "wp:featuredmedia",
       },
     });
@@ -547,6 +588,7 @@ export async function getEpisodeForEdit(id: number): Promise<EditableEpisode | n
     season,
     episode,
     title: decodeEntities(raw.title?.raw ?? "").trim(),
+    description: excerptToText(raw.excerpt?.raw ?? ""),
     videoUrl: metaStr(meta, "_episode_url_link"),
     releaseDate: tsToIsoDate(metaInt(meta, "_episode_release_date")),
     runTime: metaStr(meta, "_episode_run_time"),
@@ -573,6 +615,8 @@ export async function getEpisodeForEditFast(id: number, token?: string): Promise
       videoUrl: string;
       releaseTs: number;
       runTime: string;
+      /** post_excerpt. ABSENT from ams-fast-api < 1.8.3 — see the guard below. */
+      excerpt?: string;
       thumbId: number;
       thumbUrl: string;
     }>("episode", { id }, { token });
@@ -582,6 +626,14 @@ export async function getEpisodeForEditFast(id: number, token?: string): Promise
   }
 
   const d = body.data;
+  // A fast-api build older than 1.8.3 has no `excerpt`. Reading it as ""
+  // would BLANK the description on the editor's next save, so a stale plugin
+  // hands this one read to WP REST — directly, not by throwing: an old build
+  // is not a fast-path failure and must not trip the breaker.
+  if (typeof d.excerpt !== "string") {
+    console.warn("[fast] episode: plugin predates `excerpt` (needs ams-fast-api 1.8.3) — reading via WP REST");
+    return getEpisodeForEdit(id);
+  }
   const { season, episode } = parseEpisodeLabel(d.label ?? "");
   return {
     id: d.id,
@@ -589,6 +641,7 @@ export async function getEpisodeForEditFast(id: number, token?: string): Promise
     season,
     episode,
     title: decodeEntities(d.title ?? "").trim(),
+    description: excerptToText(d.excerpt),
     videoUrl: d.videoUrl ?? "",
     releaseDate: tsToIsoDate(d.releaseTs ?? 0),
     runTime: d.runTime ?? "",
@@ -611,6 +664,8 @@ export function readEpisodeForEdit(id: number, token?: string): Promise<Editable
 export interface EpisodeWrite {
   label: string;
   title: string;
+  /** post_excerpt — see EpisodeCreateWrite.description. */
+  description: string;
   videoUrl: string;
   releaseTs: number;
   runTime: string;
@@ -622,6 +677,7 @@ export async function updateEpisode(id: number, w: EpisodeWrite): Promise<{ id: 
     method: "POST",
     body: {
       title: w.title,
+      excerpt: w.description,
       featured_media: w.thumbId,
       meta: {
         _episode_number: w.label,

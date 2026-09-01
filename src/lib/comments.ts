@@ -15,7 +15,7 @@ import { decodeEntities } from "./api/mappers";
 import { ApiError } from "./api/client";
 import { fastPublicFetch, withPublicRestFallback } from "./api/fast-public";
 
-const BASE = process.env.API_BASE_URL ?? "https://economy.ams.com.kh/wp-json";
+const BASE = process.env.API_BASE_URL ?? "https://education.ams.com.kh/wp-json";
 
 /** 1h floor (ISR-writes budget). This fetch's window CAPS the whole article
  *  route's ISR window — the shortest fetch on a page wins — so 300 here

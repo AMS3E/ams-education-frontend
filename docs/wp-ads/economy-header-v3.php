@@ -33,7 +33,7 @@
     </script>
 
 <!--script ads revine -->
-<script async src="//ads.amscloud.cc/www/delivery/asyncjs.php"></script>
+<script async src="//ads.ams.com.kh/www/delivery/asyncjs.php"></script>
 
 <?php if (is_single()) : ?>
     <?php

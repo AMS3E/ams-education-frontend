@@ -1,0 +1,17 @@
+- generic [active] [ref=e1]:
+  - main [ref=e2]:
+    - generic [ref=e4]:
+      - generic [ref=e7]:
+        - generic [ref=e8]: AMS
+        - generic [ref=e9]: Education
+      - heading "Sign in" [level=1] [ref=e10]
+      - paragraph [ref=e11]: Use your WordPress username and password.
+      - generic [ref=e12]:
+        - generic [ref=e13]:
+          - generic [ref=e14]: Username
+          - textbox "Username" [ref=e15]
+        - generic [ref=e16]:
+          - generic [ref=e17]: Password
+          - textbox "Password" [ref=e18]
+      - button "Sign in" [ref=e19] [cursor=pointer]
+  - button "Open Next.js Dev Tools" [ref=e25] [cursor=pointer]

@@ -19,7 +19,7 @@
  * Damrei zone serves. ROLLBACK: delete this file — the parent's copy takes
  * over again. Design record: frontend repo, docs/wp-ads/README.md section 15.
  * Kept here: the Damrei video in-view unit (checksum-guarded, byte-identical
- * to the parent's), the ads.amscloud.cc loader, Metricool, the Meta Pixel,
+ * to the parent's), the ads.ams.com.kh loader, Metricool, the Meta Pixel,
  * and the gax-inpage-async-* placeholder divs.
  */
 
@@ -48,7 +48,7 @@
     </script>
 
 <!--script ads revine -->
-<script async src="//ads.amscloud.cc/www/delivery/asyncjs.php"></script>
+<script async src="//ads.ams.com.kh/www/delivery/asyncjs.php"></script>
 
 <?php if (is_single()) : ?>
     <?php

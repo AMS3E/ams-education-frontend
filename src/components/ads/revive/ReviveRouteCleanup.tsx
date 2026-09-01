@@ -19,8 +19,8 @@ function refreshReviveZones(ins: Element) {
 
 const REVIVE_SELECTOR = [
   '[data-revive-zoneid]',
-  'iframe[src*="ads.amscloud.cc"]',
-  'img[src*="ads.amscloud.cc"]',
+  'iframe[src*="ads.ams.com.kh"]',
+  'img[src*="ads.ams.com.kh"]',
   '[id^="beacon_"]',
   '[id^="revive-"]',
   '[class*="revive"]',

@@ -41,7 +41,7 @@ export interface CuratedProgram {
   wpHref: string;
 }
 
-const WP = "https://economy.ams.com.kh";
+const WP = "https://education.ams.com.kh";
 
 export const CURATED_PROGRAMS: CuratedProgram[] = [
   // Colored nav pills (top-right of the header bar).
@@ -51,8 +51,14 @@ export const CURATED_PROGRAMS: CuratedProgram[] = [
   { slug: "khmer-insider", title: "Khmer Insider", postType: "movie", postId: 2930, showId: 21395, wpHref: `${WP}/program/khmer-insider` },
   { slug: "financial-street", title: "វិថីហិរញ្ញវត្ថុ", postType: "movie", postId: 88073, showId: 88448, wpHref: `${WP}/program/financial-street` },
   { slug: "financial-talk", title: "គន្លឹះហិរញ្ញវត្ថុ", postType: "movie", postId: 165716, showId: 165714, wpHref: `${WP}/program/financial-talk` },
-  { slug: "digital-literacy", title: "អក្ខរកម្មឌីជីថល", postType: "movie", postId: 138439, showId: 138432, wpHref: `${WP}/movie/digital-literacy` },
-  { slug: "industry4.0", title: "ឧស្សាហកម្ម ៤.០", postType: "movie", postId: 136553, showId: 134388, wpHref: `${WP}/movie/industry4.0` },
+  // Education's menu keeps the older friendly paths below, while the current
+  // movie rows use unrelated REST slugs. Pin by post id so those public menu
+  // links resolve to stable local routes instead of being dropped by the
+  // routability guard. `/movie/digital-literacy` is itself stale/404 on the
+  // WordPress theme, but its replacement movie + episode container are both
+  // published and are the program the menu still labels អក្ខរកម្មឌីជីថល.
+  { slug: "digital-literacy", title: "អក្ខរកម្មឌីជីថល", postType: "movie", postId: 103367, showId: 103362, wpHref: `${WP}/movie/digital-literacy` },
+  { slug: "industry4.0", title: "ឧស្សាហកម្ម ៤.០", postType: "movie", postId: 100350, showId: 100358, wpHref: `${WP}/movie/industry4.0` },
   { slug: "financial-literacy", title: "ចំណេះដឹងហិរញ្ញវត្ថុ", postType: "movie", postId: 134265, showId: 134267, wpHref: `${WP}/movie/financial-literacy` },
   { slug: "our-reources", title: "ធនធានស្រុកយើង", postType: "movie", postId: 134075, showId: 134048, wpHref: `${WP}/program/our-reources` },
   { slug: "hot-topic", title: "Hot Topic", postType: "movie", postId: 76188, showId: 76126, wpHref: `${WP}/program/hot-topic` },

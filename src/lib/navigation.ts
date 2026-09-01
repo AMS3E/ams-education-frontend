@@ -36,18 +36,22 @@ export interface NavPill {
 }
 
 // Transcribed from education.ams.com.kh's live `#menu-ams-economy-secondary`
-// (2026-08-26) — the WordPress menu is still named/id'd "AMS ECONOMY
-// SECONDARY" (a leftover slot name from the Economy theme this site forked
-// from), but its actual items are this site's own programs, not Economy's:
-// អនាគត/ពន្លកបៃតង, each a real `movie` post on this backend (ids 19929/2930).
+// (2026-08-26, third pill added 2026-08-28 — the live menu grew a member
+// between those two dates) — the WordPress menu is still named/id'd "AMS
+// ECONOMY SECONDARY" (a leftover slot name from the Economy theme this site
+// forked from), but its actual items are this site's own programs, not
+// Economy's: អនាគត/ពន្លកបៃតង, each a real `movie` post on this backend (ids
+// 19929/2930); កម្ពុជា 360° (menu-item-22509) is a plain WP `program` page,
+// no matching postId/tvShowId pinned elsewhere the way the other two have.
 // Colors read straight from the live customizer CSS
 // (`#menu-ams-economy-secondary .menu-item:nth-child(N) a{background-color:…}`);
 // #6068d7 for អនាគត also matches the homepage's own
 // `[cover-digital-program tvshow-id="21613" bg-color="#6068d7"]` shortcode.
-// Text is white on both, matching the row's base rule.
+// Text is white on all three, matching the row's base rule.
 const NAV_PILLS: NavPill[] = [
   { label: "អនាគត", background: "#6068d7", color: "#fff", slug: "anakot", href: "/program/anakot" },
   { label: "ពន្លកបៃតង", background: "#669230", color: "#fff", slug: "green-leaf", href: "/program/green-leaf" },
+  { label: "កម្ពុជា 360°", background: "#c70003", color: "#fff", slug: "cambodia-360", href: "/program/cambodia-360" },
 ];
 
 export async function getNavPills(): Promise<NavPill[]> {
@@ -73,12 +77,24 @@ export const PROGRAM_ICON_LABEL = "មាតិកាឌីជីថល:";
  * deploy. Core menu REST is private; fast.php's allow-listed `pub-menu`
  * resource exposes only this already-public navigation data. */
 export async function getProgramIcons(): Promise<ProgramIcon[]> {
-  const [{ fastPublicFetch }, { PROGRAM_ICON_MENU }, { fetchRenderedProgramIcons }, { CURATED_PROGRAMS }] = await Promise.all([
-    import("./api/fast-public"),
-    import("./admin/constants"),
-    import("./api/program-menu"),
-    import("./program-curation"),
-  ]);
+  const [{ fastPublicFetch }, { PROGRAM_ICON_MENU }, { fetchRenderedProgramIcons }, { CURATED_PROGRAMS }, { getProgramSlugs }] =
+    await Promise.all([
+      import("./api/fast-public"),
+      import("./admin/constants"),
+      import("./api/program-menu"),
+      import("./program-curation"),
+      import("./programs"),
+    ]);
+
+  // WordPress's own menu can (and does — see the digital-literacy 2026-08-28
+  // incident) keep pointing at a program post someone has since deleted. Drop
+  // any icon that resolves to a /program/<slug> we can't actually route,
+  // rather than shipping visitors a dead link straight off the header.
+  const routable = new Set(await getProgramSlugs());
+  const isLive = (icon: ProgramIcon) => {
+    const slug = /^\/program\/([^/?#]+)/.exec(icon.href)?.[1];
+    return !slug || routable.has(decodeURIComponent(slug));
+  };
 
   try {
     // Lazy because MobileNav is a Client Component that value-imports the
@@ -92,13 +108,14 @@ export async function getProgramIcons(): Promise<ProgramIcon[]> {
 
     return (env.data?.items ?? [])
       .map((item) => toProgramIcon(item, CURATED_PROGRAMS))
-      .filter((icon): icon is ProgramIcon => icon !== null);
+      .filter((icon): icon is ProgramIcon => icon !== null)
+      .filter(isLive);
   } catch {
     // The live plugin may not have the Economy menu in its allow-list yet.
     // Read the same menu from the public WordPress markup during that rollout
     // gap; if WordPress itself is unavailable, keep this decoration optional.
     return fetchRenderedProgramIcons()
-      .then((icons) => icons.map((icon) => ({ ...icon, href: localMenuHref(icon.href, CURATED_PROGRAMS) })))
+      .then((icons) => icons.map((icon) => ({ ...icon, href: localMenuHref(icon.href, CURATED_PROGRAMS) })).filter(isLive))
       .catch(() => []);
   }
 }
@@ -144,7 +161,7 @@ function toProgramIcon(item: FastMenuItem, curated: CuratedMenuProgram[]): Progr
 function localMenuHref(href: string, curated: CuratedMenuProgram[]): string {
   try {
     const url = new URL(href);
-    if (url.hostname !== "economy.ams.com.kh") return href;
+    if (url.hostname !== "education.ams.com.kh") return href;
 
     const pathKey = (value: string) => value.replace(/^https?:\/\/[^/]+/i, "").replace(/\/+$/, "");
     const curatedMatch = curated.find((program) => pathKey(program.wpHref) === pathKey(url.pathname));

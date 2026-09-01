@@ -1,8 +1,8 @@
-// Low-level HTTP client for the AMS Economy WordPress REST API.
+// Low-level HTTP client for the AMS Education WordPress REST API.
 // All calls are server-side (Server Components / Route Handlers), so the base
 // URL stays a server-only env var and the browser never sees it.
 
-const BASE = process.env.API_BASE_URL ?? "https://economy.ams.com.kh/wp-json";
+const BASE = process.env.API_BASE_URL ?? "https://education.ams.com.kh/wp-json";
 
 export class ApiError extends Error {
   constructor(

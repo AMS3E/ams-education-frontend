@@ -22,7 +22,7 @@
 
 import { AdminAuthError, requireToken, type QueryValue } from "./client";
 
-const API_BASE = process.env.API_BASE_URL ?? "https://infotainment.ams.com.kh/wp-json";
+const API_BASE = process.env.API_BASE_URL ?? "https://education.ams.com.kh/wp-json";
 
 /** `https://site/wp-json` -> `https://site/wp-content/plugins/ams-fast-api/fast.php` */
 function derivedFastUrl(): string {

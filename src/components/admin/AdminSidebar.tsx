@@ -48,19 +48,17 @@ const GROUPS: NavGroup[] = [
   {
     title: "Site",
     items: [
-      // Menus. The capability WordPress actually enforces on these writes is
-      // edit_theme_options, but the login payload only carries the curated
-      // allow-list in ams_afa_login_caps(), which does not include it — gating
-      // on it here would evaluate to undefined and hide the screen from
-      // everyone. manage_options is the closest cap in that list; every real
-      // admin has both. Swap the day the plugin's list includes it.
-      { label: "Menus", href: "/admin/menus", icon: "list", cap: "manage_options" },
+      // Menus, Users and Roles pulled from the nav on request (2026-08-28) —
+      // the screens still exist at /admin/menus, /admin/users, /admin/roles,
+      // just unlisted here. The group disappears with them (see the `.filter`
+      // below), same mechanism as the already-hidden Settings/SEO entries.
+      // { label: "Menus", href: "/admin/menus", icon: "list", cap: "manage_options" },
       // NO "SEO" entry, on the owner's call (2026-08-12): the Yoast metabox
       // under the article covers the day-to-day, so the standalone workbench
       // came out of the nav. The screens still exist at /admin/seo — put the
       // item back here the day a bulk SEO pass is actually wanted.
-      { label: "Users", href: "/admin/users", icon: "users", cap: "list_users" },
-      { label: "Roles", href: "/admin/roles", icon: "eye", cap: "list_users" },
+      // { label: "Users", href: "/admin/users", icon: "users", cap: "list_users" },
+      // { label: "Roles", href: "/admin/roles", icon: "eye", cap: "list_users" },
       // { label: "Settings", href: "/admin/settings", icon: "settings", cap: "manage_options" },
     ],
   },

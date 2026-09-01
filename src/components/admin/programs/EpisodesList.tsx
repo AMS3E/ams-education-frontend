@@ -443,6 +443,8 @@ function EpisodeDialog({
   const [season, setSeason] = useState(String(editing ? editing.season || 1 : newest?.season ?? 1));
   const [episode, setEpisode] = useState(String(editing ? editing.episode || 1 : (newest?.episode ?? 0) + 1));
   const [title, setTitle] = useState(editing?.title ?? "");
+  // The list row carries no description either; it arrives with the load.
+  const [description, setDescription] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
   const [releaseDate, setReleaseDate] = useState(editing ? "" : todayPP());
   const [runTime, setRunTime] = useState(editing?.runTime ?? "");
@@ -473,6 +475,7 @@ function EpisodeDialog({
       if (e.season) setSeason(String(e.season));
       if (e.episode) setEpisode(String(e.episode));
       setTitle(e.title);
+      setDescription(e.description);
       setVideoUrl(e.videoUrl);
       setReleaseDate(e.releaseDate);
       setRunTime(e.runTime);
@@ -496,6 +499,7 @@ function EpisodeDialog({
         season: Number(season) || 0,
         episode: Number(episode) || 0,
         title,
+        description,
         videoUrl,
         releaseDate,
         runTime,
@@ -580,6 +584,10 @@ function EpisodeDialog({
           <div>
             <div className={labelClass} style={{ color: ac.muted }}>Title</div>
             <input value={title} onChange={(e) => setTitle(e.target.value)} autoFocus className={fieldClass} style={fieldStyle} />
+          </div>
+          <div>
+            <div className={labelClass} style={{ color: ac.muted }}>Description</div>
+            <textarea rows={3} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Shown in the Description box under the player" className={css({ width: "100%", padding: "8px 11px", borderRadius: "8px", fontSize: "13px", lineHeight: 1.6, resize: "vertical" })} style={fieldStyle} />
           </div>
           <div>
             <div className={labelClass} style={{ color: ac.muted }}>Video URL</div>

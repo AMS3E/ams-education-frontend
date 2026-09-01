@@ -34,8 +34,6 @@ export interface ProgramPayload {
   /** Attachment ids from the media picker; 0 = unset/clear. */
   posterId: number;
   backdropId: number;
-  /** Movies only. */
-  video?: { choice: string; url: string; embed: string };
 }
 
 export interface ProgramSaveResult {
@@ -79,7 +77,6 @@ export async function createProgramAction(
       schedule: payload.schedule.trim(),
       posterId: payload.posterId,
       backdropId: payload.backdropId,
-      video: payload.video,
     });
     // A published create is live routing news — refresh the public registry
     // (poster surfaces + /program/<slug>). Drafts touch nothing public.
@@ -137,6 +134,8 @@ export interface EpisodePayload {
   /** "YYYY-MM-DD" or "". */
   releaseDate: string;
   runTime: string;
+  /** Plain text for the episode page's Description box (the excerpt). */
+  description: string;
   thumbId: number;
 }
 
@@ -197,6 +196,7 @@ export async function createEpisodeAction(programId: number, payload: EpisodePay
       videoUrl,
       releaseTs,
       runTime: payload.runTime.trim(),
+      description: payload.description.trim(),
       thumbId: payload.thumbId,
     });
     // The public episode surfaces are busted by the WP plugin's publish
@@ -254,6 +254,7 @@ export async function updateEpisodeAction(
       videoUrl,
       releaseTs,
       runTime: payload.runTime.trim(),
+      description: payload.description.trim(),
       thumbId: payload.thumbId,
     });
     // Mirror the WP publish webhook locally so this deployment refreshes even
@@ -392,7 +393,6 @@ export async function saveProgramAction(
       schedule: payload.schedule.trim(),
       posterId: payload.posterId,
       backdropId: payload.backdropId,
-      video: payload.video,
       status,
     });
     await bustProgram(id, saved.status === "publish", status !== undefined);

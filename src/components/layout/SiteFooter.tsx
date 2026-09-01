@@ -66,7 +66,7 @@ export default function SiteFooter() {
               header's own logo (SiteHeader.tsx). Intrinsic size 181×58;
               width/height attrs reserve space to avoid layout shift. */}
           <img
-            src="https://s3.ams.com.kh/economy/2022/09/APSARA-MEDIA-SERVICES-COLOUR-FULL-H58.svg"
+            src="https://s3.ams.com.kh/education/2022/09/APSARA-MEDIA-SERVICES-COLOUR-FULL-H58.svg"
             alt="Apsara Media Services"
             width={181}
             height={58}

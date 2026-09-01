@@ -269,7 +269,7 @@ export default function MenuManager({
                   if (e.key === "Enter") void submitNew();
                   if (e.key === "Escape") setAdding(false);
                 }}
-                placeholder="https://infotainment.ams.com.kh/program/…"
+                placeholder="https://education.ams.com.kh/program/…"
               />
             </div>
             <Button variant="primary" disabled={busy} onClick={() => void submitNew()}>

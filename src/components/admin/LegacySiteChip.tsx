@@ -25,7 +25,7 @@ import { useSyncExternalStore } from "react";
 import { Badge } from "./ui";
 import { purgeLegacyCacheAction } from "@/lib/admin/cache-actions";
 
-const SITE = "infotainment.ams.com.kh";
+const SITE = "education.ams.com.kh";
 
 type RefreshState =
   | { phase: "idle" }

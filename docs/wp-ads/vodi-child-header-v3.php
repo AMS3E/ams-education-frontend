@@ -63,7 +63,7 @@
     <!-- End Meta Pixel Code -->
     
     <!--ads reviene script -->
-    <script async src="//ads.amscloud.cc/www/delivery/asyncjs.php"></script>
+    <script async src="//ads.ams.com.kh/www/delivery/asyncjs.php"></script>
   
     <script>
         function loadScript(a) {
