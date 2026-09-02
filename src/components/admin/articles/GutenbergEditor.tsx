@@ -767,17 +767,17 @@ const documentAreaClass = css({
 });
 
 /** The document column: reading width, centred in whatever space the canvas
- *  area has. This is the 768px that used to be the WHOLE editor. It wraps the
- *  sheet AND the off-sheet excerpt so both track the device width together —
- *  an excerpt field that stayed 768px while the page narrowed to 390px would
- *  look like part of the chrome. */
+ *  area has. This used to be 768px (the WHOLE editor, originally). It wraps
+ *  the sheet AND the off-sheet excerpt so both track the device width
+ *  together — an excerpt field that stayed 1024px while the page narrowed to
+ *  390px would look like part of the chrome. */
 const documentColClass = css({
-  maxWidth: "768px",
+  maxWidth: "1024px",
   margin: "0 auto",
 });
 
 /** The page. Horizontal padding is the 32px the document column used to carry,
- *  so the reading measure is unchanged (704px at desktop) — what moved is only
+ *  so the reading measure is unchanged (960px at desktop) — what moved is only
  *  what sits behind it. Deliberately NO `overflow: hidden`: WP's drag handles,
  *  the block appender and the inserter's drop indicator all paint outside the
  *  block list, and clipping them breaks the affordances. */

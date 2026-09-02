@@ -53,10 +53,10 @@ export default function EditorSkeleton({ note, chrome = false }: { note: string;
       </div>
 
       <div className={css({ display: "flex", alignItems: "flex-start" })}>
-        {/* Canvas: the same 768px sheet in the same gutter, at the same
+        {/* Canvas: the same 1024px sheet in the same gutter, at the same
             min-height, so the real document lands where this one stood. */}
         <div className={css({ flex: 1, minWidth: 0, padding: "32px 24px 120px" })}>
-          <div className={css({ maxWidth: "768px", margin: "0 auto" })}>
+          <div className={css({ maxWidth: "1024px", margin: "0 auto" })}>
             <div
               className={css({ padding: "32px 32px 56px", minHeight: "calc(100vh - 176px)" })}
               style={{ background: publishedPageBg, border: `1px solid ${ac.border}`, boxShadow: ac.shadowSm }}
