@@ -276,7 +276,7 @@ const metaLine = (r?: ArticleRef) => (r ? [r.categories?.map((c) => c.name).join
  */
 const SIDEBAR_WIDGETS = [
   { heading: "អ្នកជំនាញចិត្តសាស្ត្រ", slug: "news-national-and-international-education-update", href: "/national-and-international-education-update", size: 3 },
-  { heading: "ចំណេះជីវិត", slug: "news-life-education", href: "/life-education", size: 5 },
+  { heading: "ជំនាញ", slug: "news-life-education", href: "/life-education", size: 5 },
   { heading: "អប់រំកុមារតូច", slug: "news-children-education", href: "/children-education", size: 4 },
   { heading: "ព័ត៌មានអាហារូបករណ៍", slug: "news-scholarships-news", href: "/schoolaship-news", size: 6 },
   { heading: "យុវជនឆ្នើម", slug: "news-outstdanding-youth", href: "/outstanding-youth", size: 3 },
