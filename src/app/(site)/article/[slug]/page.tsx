@@ -129,7 +129,7 @@ export default async function ArticlePage({ params }: Params) {
           flexWrap: "wrap",
           alignItems: "center",
           gap: "7px",
-          fontSize: "12.5px",
+          fontSize: "15px",
           color: "muted",
           marginBottom: "18px",
         })}
