@@ -90,17 +90,17 @@ export default function Sidebar({
 
       <ReviveAdSlot zone={revivePortrait} />
 
-      {economic && (
-        <div>
-          <SectionHeader variant="underline" title={economic.heading} titleSize="22px" seeAllHref={economic.href} />
-          <CardList items={economic.items} />
-        </div>
-      )}
-
       {finance && (
         <div>
           <SectionHeader variant="underline" title={finance.heading} titleSize="22px" seeAllHref={finance.href} />
           <FeaturedList items={finance.items} />
+        </div>
+      )}
+
+      {economic && (
+        <div>
+          <SectionHeader variant="underline" title={economic.heading} titleSize="22px" seeAllHref={economic.href} />
+          <CardList items={economic.items} />
         </div>
       )}
 
