@@ -209,7 +209,7 @@ was asked. Every one was measured against live production.
   `fast.php` returns failures as HTTP 200 + `ok:false` + status-in-body (auth
   stays a real 401).
 - **Hosting is the company's own Dokploy since 2026-08-07, NOT Vercel** —
-  `https://info.amscloud.cc`, panel at `deploy.amskh.co`, repo `AMS3E/…`, shipped
+  `https://edu.amscloud.cc`, panel at `deploy.amskh.co`, repo `AMS3E/…`, shipped
   as a Docker image, autodeploys on push to `main`. Vercel is taken down, and with
   it the Bot-Protection 429 that used to force headless Chrome for every public
   check: **plain `curl` works against the site again.** The box is shared with
@@ -384,7 +384,7 @@ feature is just broken" with nothing in the logs pointing at them**:
 
 - **The hero iframe needs the frontend origin in `ams_afa_embed_origins()`**
   (the `frame-ancestors` header) in the AMS Frontend API plugin. Done for
-  `localhost:3000` and the old Vercel domain — **NOT for `info.amscloud.cc`, so
+  `localhost:3000` and the old Vercel domain — **NOT for `edu.amscloud.cc`, so
   the hero is blank on the live site right now** ("refused to connect" in the
   iframe). Parked by the owner on 2026-08-10. Edit the LIVE plugin (the repo copy
   is source-only) and clear AMS Cache afterwards — that clear IS needed here,

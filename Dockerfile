@@ -34,7 +34,7 @@ COPY . .
 #
 # NEXT_PUBLIC_* are inlined into the client bundle by `next build`, so they must
 # be correct HERE; setting them only in Dokploy's runtime env does nothing.
-ARG NEXT_PUBLIC_SITE_URL=https://info.amscloud.cc
+ARG NEXT_PUBLIC_SITE_URL=https://edu.amscloud.cc
 ARG NEXT_PUBLIC_WP_ORIGIN=https://education.ams.com.kh
 # Server-only, but the build's prerender pass reads it too when
 # PRERENDER_PUBLIC=1 (every prebuilt public page is rendered at build time
