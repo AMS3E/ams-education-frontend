@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AMS Frontend API
  * Description: General-purpose endpoints for the AMS Infotainment Next.js frontend (add new ones here as needed). Read-only + a standalone hero-slider embed + the homepage featured-program picker + anonymous REST commenting + per-user login tokens for authenticated writes + program custom-meta exposed to REST + skips AMS Cache's synchronous page warmer on dashboard writes (96s -> under 1s). Self-contained — deactivate/delete anytime with zero effect on anything else.
- * Version:     1.22.0
+ * Version:     1.22.1
  * Author:      Soth Kimleng
  *
  * Standalone "add endpoints as needed" API file, separate from the legacy
@@ -450,6 +450,16 @@ function ams_afa_khmer_digits( $n ) {
  * Reconcile one episode into (or out of) its show's `_seasons` repeater.
  * $remove_only is the trash/delete path: take it out of every season, touch
  * nothing else.
+ *
+ * 1.22.1: also prunes any season this call just emptied (see step 1b) — a
+ * season with an empty `episodes` array crashes MasVideos' own
+ * set_seasons()/array_multisort() with an uncaught "Array sizes are
+ * inconsistent" Error, fatal to wp-admin's TV Shows list and to the show's
+ * own page. Trashing a show's last episode in a season used to leave exactly
+ * that kind of stub behind. This only stops NEW ones — existing bad data is
+ * handled by the 1.22.1 activation-hook sweep below (untrashed_post's
+ * neighbour), which fires automatically the next time this plugin is
+ * deactivated/reactivated.
  */
 function ams_afa_sync_show_seasons( $episode_id, $remove_only = false ) {
     $episode_id = (int) $episode_id;
@@ -472,6 +482,20 @@ function ams_afa_sync_show_seasons( $episode_id, $remove_only = false ) {
             return $e > 0 && $e !== $episode_id;
         } ) );
     }
+
+    // 1b. A season this call just emptied is a season MasVideos' own
+    //     set_seasons() cannot render: it calls array_multisort() over arrays
+    //     derived per-season, and an empty `episodes` array on one of them
+    //     throws "Array sizes are inconsistent" (fatal on PHP 8+) — reproduced
+    //     live 2026-09-02, trashing a show's only episode in a season. Drop
+    //     ONLY seasons that WERE non-empty and are now empty as a result of
+    //     this call; a season an editor deliberately left empty (a "coming
+    //     soon" placeholder, never touched here) is left alone.
+    $seasons = array_values( array_filter( $seasons, function ( $season, $i ) use ( $before ) {
+        $now_empty = empty( $season['episodes'] );
+        $was_empty = ! isset( $before[ $i ]['episodes'] ) || empty( $before[ $i ]['episodes'] );
+        return ! ( $now_empty && ! $was_empty );
+    }, ARRAY_FILTER_USE_BOTH ) );
 
     if ( ! $remove_only ) {
         list( $season_no, ) = ams_afa_label_numbers( get_post_meta( $episode_id, '_episode_number', true ) );
@@ -573,6 +597,51 @@ add_action( 'untrashed_post', function ( $post_id ) {
         ams_afa_sync_show_seasons( $post_id );
     }
 }, 10, 1 );
+
+/**
+ * 1.22.1 ONE-TIME REPAIR, on activation. ams_afa_sync_show_seasons() no
+ * longer WRITES an empty season (see step 1b above), but that only prevents
+ * new ones — any show whose `_seasons` already carries one from before this
+ * version keeps crashing MasVideos' set_seasons()/array_multisort() (fatal
+ * "Array sizes are inconsistent", reproduced live 2026-09-02) on every render
+ * until that specific entry is removed. This sweeps every tv_show once and
+ * strips any season with an empty `episodes` array, unconditionally — safe
+ * sitewide because MasVideos itself cannot render an empty season without
+ * hitting the same crash, so no genuinely-empty season could have survived
+ * being viewed even once; every one found here is already-latent-broken data,
+ * not a deliberate "coming soon" placeholder.
+ *
+ * Runs on ACTIVATION, so the deactivate-then-reactivate step every plugin
+ * upload in this project already does is what fires it — no separate action
+ * needed. Idempotent: a second activation finds nothing left to prune.
+ */
+register_activation_hook( __FILE__, function () {
+    $show_ids = get_posts( array(
+        'post_type'      => 'tv_show',
+        'post_status'    => 'any',
+        'posts_per_page' => -1,
+        'fields'         => 'ids',
+    ) );
+
+    $fixed = array();
+    foreach ( $show_ids as $show_id ) {
+        $seasons = maybe_unserialize( get_post_meta( $show_id, '_seasons', true ) );
+        if ( ! is_array( $seasons ) ) {
+            continue;
+        }
+        $clean = array_values( array_filter( $seasons, function ( $season ) {
+            return ! empty( $season['episodes'] );
+        } ) );
+        if ( count( $clean ) !== count( $seasons ) ) {
+            update_post_meta( $show_id, '_seasons', $clean );
+            $fixed[] = $show_id;
+        }
+    }
+
+    if ( $fixed ) {
+        error_log( 'ams-frontend-api 1.22.1 activation sweep: pruned empty _seasons entries on show ids ' . implode( ', ', $fixed ) );
+    }
+} );
 
 /**
  * GET /wp-json/wp/v2/web/episode?id=<id>
