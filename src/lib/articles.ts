@@ -264,18 +264,20 @@ const metaLine = (r?: ArticleRef) => (r ? [r.categories?.map((c) => c.name).join
  *
  * Their headings are editorial labels, so each entry explicitly names the
  * category feed it belongs to instead of being sliced from a general feed.
+ *
+ * These five (of NAV_SECTIONS' six real education categories — see
+ * categories.ts) and their hrefs are education's own, REST-verified terms
+ * (docs/wordpress/education-categories.md). This replaces a set of Economy's
+ * category slugs (news-economic, news-finance, …) that were still here from
+ * a copy-paste and resolved to nothing on education.ams.com.kh, leaving
+ * every one of these widgets empty in production.
  */
 const SIDEBAR_WIDGETS = [
-  { heading: "សេដ្ឋកិច្ច", slug: "news-economic", href: "/economic", size: 3 },
-  { heading: "ហិរញ្ញវត្ថុ", slug: "news-finance", href: "/finance", size: 5 },
-  { heading: "អចលនទ្រព្យ", slug: "news-realestate", href: "/real-estate", size: 4 },
-  { heading: "អត្ថបទពាណិជ្ជកម្ម", slug: "news-pr", href: "/pr", size: 6 },
-  {
-    heading: "អាជីវកម្មថ្មី និងនវានុវត្ត",
-    slug: "news-startup-and-innovation",
-    href: "/start-up-innovation",
-    size: 3,
-  },
+  { heading: "ព័ត៌មានជាតិ និងអន្តរជាតិ", slug: "news-national-and-international-education-update", href: "/national-and-international-education-update", size: 3 },
+  { heading: "ចំណេះជីវិត", slug: "news-life-education", href: "/life-education", size: 5 },
+  { heading: "អប់រំកុមារតូច", slug: "news-children-education", href: "/children-education", size: 4 },
+  { heading: "ព័ត៌មានអាហារូបករណ៍", slug: "news-scholarships-news", href: "/schoolaship-news", size: 6 },
+  { heading: "យុវជនឆ្នើម", slug: "news-outstdanding-youth", href: "/outstanding-youth", size: 3 },
 ] as const;
 
 /** Sidebar widgets + below-article sections.
@@ -286,14 +288,15 @@ const SIDEBAR_WIDGETS = [
  *  prev/next pager) are windows into the general feed,
  *  and they take DISJOINT windows of it so no article shows up twice on the page.
  *
- *  The two main-column feeds use Economy's direct root IDs: 565 for reports and
- *  515 for general news. */
+ *  The two main-column feeds use education's own root ids (education-categories.md):
+ *  535 (all-report / បទយកការណ៍) for reports and 533 (all-news / ព្រឹត្តិការណ៍)
+ *  for general news — replacing Economy's 565/515, which resolved to nothing here. */
 export async function getArticleExtras(): Promise<ArticleExtras> {
   const [refs, programs, reports, generalNews, widgets] = await Promise.all([
     recentRefs(13, ["articles"]),
     getFeaturedPrograms(),
-    categoryRefsByIds("565", 9),
-    categoryRefsByIds("515", 8),
+    categoryRefsByIds("535", 9),
+    categoryRefsByIds("533", 8),
     Promise.all(SIDEBAR_WIDGETS.map((w) => categoryRefs(w.slug, w.size))),
   ]);
 
