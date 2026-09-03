@@ -275,7 +275,7 @@ const metaLine = (r?: ArticleRef) => (r ? [r.categories?.map((c) => c.name).join
  * every one of these widgets empty in production.
  */
 const SIDEBAR_WIDGETS = [
-  { heading: "ព័ត៌មានជាតិ និងអន្តរជាតិ", slug: "news-national-and-international-education-update", href: "/national-and-international-education-update", size: 3 },
+  { heading: "អ្នកជំនាញចិត្តសាស្ត្រ", slug: "news-national-and-international-education-update", href: "/national-and-international-education-update", size: 3 },
   { heading: "ចំណេះជីវិត", slug: "news-life-education", href: "/life-education", size: 5 },
   { heading: "អប់រំកុមារតូច", slug: "news-children-education", href: "/children-education", size: 4 },
   { heading: "ព័ត៌មានអាហារូបករណ៍", slug: "news-scholarships-news", href: "/schoolaship-news", size: 6 },
