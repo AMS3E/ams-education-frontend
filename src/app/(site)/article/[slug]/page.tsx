@@ -10,6 +10,7 @@ import BelowArticle from "@/components/article/BelowArticle";
 import { container } from "@/components/layout/shared";
 import { getArticle, getArticleExtras, getRecentArticleSlugs, type Article } from "@/lib/articles";
 import { getCommentCount } from "@/lib/comments";
+import { PRERENDER_PUBLIC } from "@/lib/prerender";
 import ShareRow from "@/components/article/ArticleShareSection";
 import ReviveAdSlot from "@/components/ads/revive/ReviveAdSlot";
 import { reviveHalfLandscape } from "@/components/ads/revive/zones";
@@ -25,6 +26,7 @@ export const revalidate = 3600;
 // WordPress REST call carries ~3.9s of fixed overhead, and these are the
 // articles most likely to be linked from the homepage and the feeds.
 export async function generateStaticParams() {
+  if (!PRERENDER_PUBLIC) return [];
   const slugs = await getRecentArticleSlugs(100);
   return slugs.map((slug) => ({ slug }));
 }

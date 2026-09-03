@@ -4,6 +4,7 @@ import { css, cx } from "@/styled-system/css";
 import { container } from "@/components/layout/shared";
 import { getCategoryPage } from "@/lib/articles";
 import { categoryHref, getCategoryTerms, resolveCategory } from "@/lib/categories";
+import { PRERENDER_PUBLIC } from "@/lib/prerender";
 import FeaturedArticleCard from "@/components/ui/FeaturedArticleCard";
 import ArticleRow from "@/components/ui/ArticleRow";
 import CategorySidebar from "@/components/category/CategorySidebar";
@@ -24,6 +25,7 @@ export const revalidate = 3600;
 // Prebuild every category. The paths come from the API, so a new topic in the
 // CMS starts working without a code change.
 export async function generateStaticParams() {
+  if (!PRERENDER_PUBLIC) return [];
   const terms = await getCategoryTerms();
   return terms.map((t) => ({ path: t.path.split("/") }));
 }

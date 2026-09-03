@@ -6,6 +6,7 @@ import SeasonGrid from "@/components/episode/SeasonGrid";
 import { container } from "@/components/layout/shared";
 import { episodeFromRail, fetchEpisodeRail, groupSeasons } from "@/lib/episodes";
 import { getProgramSlugs, programHref, routedProgram } from "@/lib/programs";
+import { PRERENDER_PUBLIC } from "@/lib/prerender";
 
 // Every episode of a show, grouped by season — the page the season grid's
 // "មើលទាំងអស់ (617)" actually delivers on. Before this existed that link landed
@@ -26,6 +27,7 @@ export const revalidate = false;
 export const dynamicParams = true;
 
 export async function generateStaticParams() {
+  if (!PRERENDER_PUBLIC) return [];
   return (await getProgramSlugs()).map(slug => ({ slug }));
 }
 

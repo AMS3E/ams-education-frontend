@@ -9,6 +9,7 @@ import { categoryRefs, type NamedList } from "@/lib/articles";
 import { getAuthorBySlug, getAuthors } from "@/lib/authors";
 import { categoryHref } from "@/lib/categories";
 import { fetchAuthorPosts } from "@/lib/wp-core";
+import { PRERENDER_PUBLIC } from "@/lib/prerender";
 
 // The /author/<slug> archives — 21 of them on the live site, every one linked
 // from the ក្រុមការងារ block's "see all" on all 11 landing pages. Same layout as
@@ -36,6 +37,7 @@ function splitPage(path: string[]): { slug: string; page: number } | null {
 // Prebuild page 1 of every author. The slugs come from the API, so a new
 // account in the CMS starts working without a code change.
 export async function generateStaticParams() {
+  if (!PRERENDER_PUBLIC) return [];
   const authors = await getAuthors();
   return authors.map((a) => ({ path: [a.slug] }));
 }

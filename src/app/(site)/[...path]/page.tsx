@@ -11,6 +11,7 @@ import { getLandingPaths, resolveLanding } from "@/lib/categories";
 import { heroAlias } from "@/lib/hero-alias";
 import { getLandingFeed } from "@/lib/landing-data";
 import { getStaticPage, getStaticPagePaths } from "@/lib/pages";
+import { PRERENDER_PUBLIC } from "@/lib/prerender";
 
 // The section and topic LANDING pages: /entertainment-news, /celebrity,
 // /life-style/travel. Eleven in all — two sections and their nine topics.
@@ -47,6 +48,7 @@ type PageParams = Params & { searchParams: Promise<{ [key: string]: string | str
 export const revalidate = 3600;
 
 export async function generateStaticParams() {
+  if (!PRERENDER_PUBLIC) return [];
   const paths = await getLandingPaths();
   return [...paths, ...getStaticPagePaths()].map((path) => ({ path }));
 }

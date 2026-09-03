@@ -34,15 +34,22 @@ COPY . .
 #
 # NEXT_PUBLIC_* are inlined into the client bundle by `next build`, so they must
 # be correct HERE; setting them only in Dokploy's runtime env does nothing.
-ARG NEXT_PUBLIC_SITE_URL=https://eco.amscloud.cc
-ARG NEXT_PUBLIC_WP_ORIGIN=https://economy.ams.com.kh
-# Server-only, but the build's prerender pass reads it too (every ISR page is
-# rendered at build time against the live WordPress).
-ARG API_BASE_URL=https://economy.ams.com.kh/wp-json
+ARG NEXT_PUBLIC_SITE_URL=https://info.amscloud.cc
+ARG NEXT_PUBLIC_WP_ORIGIN=https://education.ams.com.kh
+# Server-only, but the build's prerender pass reads it too when
+# PRERENDER_PUBLIC=1 (every prebuilt public page is rendered at build time
+# against the live WordPress).
+ARG API_BASE_URL=https://education.ams.com.kh/wp-json
+# Off by default: see src/lib/prerender.ts. A next build with this on hammers
+# WordPress from every render worker at once, which starved this box before
+# (shared, memory-tight) even on fast-path-only routes. Set to "1" only once
+# a cheap enough article read exists to afford it (project-context.md §6).
+ARG PRERENDER_PUBLIC=0
 
 ENV NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL \
     NEXT_PUBLIC_WP_ORIGIN=$NEXT_PUBLIC_WP_ORIGIN \
     API_BASE_URL=$API_BASE_URL \
+    PRERENDER_PUBLIC=$PRERENDER_PUBLIC \
     NEXT_TELEMETRY_DISABLED=1 \
     NODE_ENV=production
 

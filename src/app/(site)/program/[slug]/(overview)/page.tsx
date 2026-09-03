@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import KhmerInsiderWatchPage from "@/components/program/KhmerInsiderWatchPage";
 import { getProgramWatchData } from "@/lib/khmer-insider";
 import { getProgramSlugs, routedProgram } from "@/lib/programs";
+import { PRERENDER_PUBLIC } from "@/lib/prerender";
 import { withMinDuration } from "@/lib/timing";
 
 type Params = { params: Promise<{ slug: string }> };
@@ -17,6 +18,7 @@ export const dynamicParams = true;
 const MIN_LOADING_MS = 400;
 
 export async function generateStaticParams() {
+  if (!PRERENDER_PUBLIC) return [];
   return (await getProgramSlugs()).map(slug => ({ slug }));
 }
 
