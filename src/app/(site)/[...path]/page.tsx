@@ -47,6 +47,21 @@ type PageParams = Params & { searchParams: Promise<{ [key: string]: string | str
 // ISR: landing pages refresh every 5 minutes, matching the category listings.
 export const revalidate = 3600;
 
+// Forces full SSR instead of Next's static-fallback-then-detect-dynamic path.
+// With generateStaticParams returning [] (PRERENDER_PUBLIC off — see
+// src/lib/prerender.ts), every landing page relies on that fallback path on
+// first request, and every one of education's six landings is a "section"
+// page that reads searchParams (the ព្រឹត្តិការណ៍ប្រចាំថ្ងៃ pager below) —
+// which is supposed to make Next abandon the static attempt and render
+// dynamically, but instead surfaced as an uncaught DYNAMIC_SERVER_USAGE 500
+// on Vercel (reproduced live 2026-09-03; never reproduces in `next dev`,
+// which has no such static/dynamic distinction). This trades away the ISR
+// cache on these six pages — currently 100% broken, so still a net win —
+// until searchParams here is replaced with path-based pagination
+// (`/page/N`, as category listings already do) to avoid the trigger
+// entirely and restore caching.
+export const dynamic = "force-dynamic";
+
 export async function generateStaticParams() {
   if (!PRERENDER_PUBLIC) return [];
   const paths = await getLandingPaths();
