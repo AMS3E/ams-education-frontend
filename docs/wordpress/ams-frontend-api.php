@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AMS Frontend API
  * Description: General-purpose endpoints for the AMS Infotainment Next.js frontend (add new ones here as needed). Read-only + a standalone hero-slider embed + the homepage featured-program picker + anonymous REST commenting + per-user login tokens for authenticated writes + program custom-meta exposed to REST + skips AMS Cache's synchronous page warmer on dashboard writes (96s -> under 1s). Self-contained — deactivate/delete anytime with zero effect on anything else.
- * Version:     1.22.1
+ * Version:     1.22.2
  * Author:      Soth Kimleng
  *
  * Standalone "add endpoints as needed" API file, separate from the legacy
@@ -302,6 +302,16 @@ function ams_afa_embed_origins() {
         'https://info.amscloud.cc',
         'http://localhost:3000',
         'https://ams-infotainment-frontend.vercel.app',
+        // 1.22.2: this exact plugin file was deployed as-is on the EDUCATION
+        // WordPress install, origins list untouched — reproduced live
+        // 2026-09-03, education's own /sr-embed sending only the three
+        // origins above and blocking every education frontend, same failure
+        // mode as the infotainment bug this function's header comment
+        // describes. Added rather than replacing the infotainment entries,
+        // since it is unconfirmed whether another live site still relies on
+        // this exact file/list.
+        'https://edu.amscloud.cc',
+        'https://ams-education-frontend.vercel.app',
     );
 }
 
