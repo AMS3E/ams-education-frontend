@@ -6,6 +6,7 @@ import SectionHeader from "@/components/ui/SectionHeader";
 import MiniRow from "@/components/ui/MiniRow";
 import ReviveAdSlot from "@/components/ads/revive/ReviveAdSlot";
 import { revivePortrait } from "@/components/ads/revive/zones";
+import NationalInternationalTabs from "@/components/article/NationalInternationalTabs";
 import type { ArticleRef, NamedList } from "@/lib/articles";
 
 /** Category widget: vertical list of image-topped cards. The meta line sits
@@ -66,7 +67,13 @@ function FeaturedList({ items }: { items: ArticleRef[] }) {
   );
 }
 
-export default function Sidebar({ sidebarLists }: { sidebarLists: NamedList[] }) {
+export default function Sidebar({
+  sidebarLists,
+  nationalInternational,
+}: {
+  sidebarLists: NamedList[];
+  nationalInternational: { national: NamedList; international: NamedList };
+}) {
   const [economic, finance, realEstate, pr, innovation] = sidebarLists;
   return (
     <aside
@@ -79,6 +86,8 @@ export default function Sidebar({ sidebarLists }: { sidebarLists: NamedList[] })
         gap: "40px",
       })}
     >
+      <NationalInternationalTabs national={nationalInternational.national} international={nationalInternational.international} />
+
       <ReviveAdSlot zone={revivePortrait} />
 
       {economic && (

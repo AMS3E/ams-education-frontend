@@ -247,6 +247,8 @@ export async function getArticle(slug: string): Promise<Article> {
 export interface ArticleExtras {
   // sidebar (right column)
   sidebarLists: NamedList[];
+  /** ព័ត៌មានជាតិ / ព័ត៌មានអន្តរជាតិ tabbed widget — see NATIONAL_INTERNATIONAL. */
+  nationalInternational: { national: NamedList; international: NamedList };
   // below the article body
   recentReports: NamedList;
   generalNews: NamedList;
@@ -280,6 +282,16 @@ const SIDEBAR_WIDGETS = [
   { heading: "យុវជនឆ្នើម", slug: "news-outstdanding-youth", href: "/outstanding-youth", size: 3 },
 ] as const;
 
+/** ព័ត៌មានជាតិ / ព័ត៌មានអន្តរជាតិ — the tabbed widget on the live WordPress
+ *  article sidebar (education.ams.com.kh), reproduced from a real article's
+ *  page. Both are topics under the ព័ត៌មានជាតិ និងអន្តរជាតិ section (id 243) —
+ *  see education-categories.md ids 723 / 731. No "see all" link: the live
+ *  widget has none. */
+const NATIONAL_INTERNATIONAL = {
+  national: { heading: "ព័ត៌មានជាតិ", slug: "news-national-education" },
+  international: { heading: "ព័ត៌មានអន្តរជាតិ", slug: "news-international-education" },
+} as const;
+
 /** Sidebar widgets + below-article sections.
  *
  *  Every block that carries a category HEADING is fetched from that category —
@@ -292,12 +304,14 @@ const SIDEBAR_WIDGETS = [
  *  535 (all-report / បទយកការណ៍) for reports and 533 (all-news / ព្រឹត្តិការណ៍)
  *  for general news — replacing Economy's 565/515, which resolved to nothing here. */
 export async function getArticleExtras(): Promise<ArticleExtras> {
-  const [refs, programs, reports, generalNews, widgets] = await Promise.all([
+  const [refs, programs, reports, generalNews, widgets, national, international] = await Promise.all([
     recentRefs(13, ["articles"]),
     getFeaturedPrograms(),
     categoryRefsByIds("535", 9),
     categoryRefsByIds("533", 8),
     Promise.all(SIDEBAR_WIDGETS.map((w) => categoryRefs(w.slug, w.size))),
+    categoryRefs(NATIONAL_INTERNATIONAL.national.slug, 5),
+    categoryRefs(NATIONAL_INTERNATIONAL.international.slug, 5),
   ]);
 
   const at = (start: number, n: number) => refs.slice(start, start + n);
@@ -308,6 +322,10 @@ export async function getArticleExtras(): Promise<ArticleExtras> {
       items: widgets[i],
       href: w.href,
     })),
+    nationalInternational: {
+      national: { heading: NATIONAL_INTERNATIONAL.national.heading, items: national },
+      international: { heading: NATIONAL_INTERNATIONAL.international.heading, items: international },
+    },
     recentReports: { heading: "របាយការណ៍ថ្មីៗ", items: reports },
     // RelatedColumns renders the first item as a large featured card, the rest as rows.
     generalNews: { heading: "ព័ត៌មានទូទៅ", items: generalNews },

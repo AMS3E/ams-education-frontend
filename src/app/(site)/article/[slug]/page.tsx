@@ -265,7 +265,7 @@ export default async function ArticlePage({ params }: Params) {
         </article>
 
         {/* sidebar */}
-        <Sidebar sidebarLists={extras.sidebarLists} />
+        <Sidebar sidebarLists={extras.sidebarLists} nationalInternational={extras.nationalInternational} />
       </div>
     </div>
   );
