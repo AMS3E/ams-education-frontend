@@ -31,6 +31,15 @@ export default defineConfig({
           "0%": { backgroundPosition: "100% 0" },
           "100%": { backgroundPosition: "0% 0" },
         },
+        adminFadeIn: { from: { opacity: 0 }, to: { opacity: 1 } },
+        adminZoomIn: {
+          from: { opacity: 0, transform: "scale(0.96) translateY(10px)" },
+          to: { opacity: 1, transform: "none" },
+        },
+        adminRise: {
+          from: { opacity: 0, transform: "translateY(16px)" },
+          to: { opacity: 1, transform: "none" },
+        },
       },
 
       tokens: {
