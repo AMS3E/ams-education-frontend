@@ -763,9 +763,21 @@ const rowHover = css({
   _hover: { background: "var(--colors-admin-surface-hover)" },
 });
 
-export function Tr({ children, selected = false, className }: { children: ReactNode; selected?: boolean; className?: string }) {
+export function Tr({
+  children,
+  selected = false,
+  className,
+  onMouseEnter,
+  onFocus,
+}: {
+  children: ReactNode;
+  selected?: boolean;
+  className?: string;
+  onMouseEnter?: () => void;
+  onFocus?: () => void;
+}) {
   return (
-    <tr className={cx(rowHover, className)} style={selected ? { background: ac.accentTint } : undefined}>
+    <tr className={cx(rowHover, className)} style={selected ? { background: ac.accentTint } : undefined} onMouseEnter={onMouseEnter} onFocus={onFocus}>
       {children}
     </tr>
   );

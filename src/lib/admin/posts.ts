@@ -231,6 +231,23 @@ export function readPosts(params: ListPostsParams = {}, token?: string): Promise
 }
 
 /**
+ * The REAL WordPress permalink for one post — category path, custom
+ * permalink overrides and all — for the Articles list's Copy URL / View row
+ * actions. Always core REST: the fast path (fast.php, SHORTINIT — no
+ * rewrite rules, no plugins) has no way to compute this, only `listPosts`
+ * can. Costs the same ~4s as any other core REST call, paid once per click
+ * rather than on every row of the list.
+ */
+export async function getPostPermalink(id: number, token?: string): Promise<{ link: string; status: string } | null> {
+  const { data } = await adminFetch<{ id: number; link?: string; status: string }>(`/wp/v2/posts/${id}`, {
+    token,
+    query: { _fields: "id,link,status" },
+  });
+  if (!data?.id) return null;
+  return { link: data.link ?? "", status: data.status };
+}
+
+/**
  * Just the total number of posts matching a filter, via the X-WP-Total header —
  * a server-side COUNT, so no rows transfer (per_page=1, _fields=id keeps the one
  * returned row tiny). Used by the dashboard stat tiles.

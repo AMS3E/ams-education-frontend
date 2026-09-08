@@ -143,9 +143,18 @@ export function postsQuery(f: PostListFilters) {
 }
 
 export function usePostsList(f: PostListFilters) {
-  // keepPreviousData: page/filter changes render the previous rows (dimmed by
-  // the view) instead of unmounting the table into a skeleton.
-  return useQuery({ ...postsQuery(f), placeholderData: keepPreviousData });
+  return useQuery({
+    ...postsQuery(f),
+    // keepPreviousData: page/filter changes render the previous rows (dimmed
+    // by the view) instead of unmounting the table into a skeleton.
+    placeholderData: keepPreviousData,
+    // Overrides the client-wide `refetchOnWindowFocus: false` (QueryProvider):
+    // the row actions now branch on `status` (View vs. WordPress's draft-
+    // preview link), so a post published outside our own editor — straight in
+    // wp-admin — needs to stop looking Draft the moment this tab regains
+    // focus, not sit stale until the next Refresh click.
+    refetchOnWindowFocus: true,
+  });
 }
 
 /* --- the rest (key + fetcher pairs exported for the login warm-up) --- */
