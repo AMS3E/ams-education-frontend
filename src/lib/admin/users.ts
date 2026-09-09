@@ -81,10 +81,16 @@ export function readAuthorOptions(token?: string): Promise<AuthorOption[]> {
   );
 }
 
-/** `fetchAuthorOptions`, degraded: any failure is an empty list. */
+/** `readAuthorOptions`, degraded: any failure is an empty list. Used by the
+ *  article editor pages, which fetch authors server-side during render and
+ *  would rather show no picker than fail the whole screen — so this needs the
+ *  fast-path-first read, not the REST-only one: plain `/wp/v2/users` 403s
+ *  pre-PHP for non-`list_users` callers on this host (docs/project-context.md
+ *  §3), which silently emptied the Author row in production while it worked
+ *  from local without ever raising anything to explain the gap. */
 export async function listAuthors(token?: string): Promise<AuthorOption[]> {
   try {
-    return await fetchAuthorOptions(token);
+    return await readAuthorOptions(token);
   } catch {
     return [];
   }
