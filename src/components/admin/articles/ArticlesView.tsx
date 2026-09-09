@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { css } from "@/styled-system/css";
 import { ac, type Status } from "../tokens";
 import { Icon } from "../icons";
@@ -18,21 +18,6 @@ import { DEFAULT_STATUSES } from "@/lib/admin/constants";
 import type { PostListResult } from "@/lib/admin/posts";
 import type { CategoryNode } from "@/lib/admin/categories";
 import type { AuthorOption } from "@/lib/admin/users";
-
-/**
- * WordPress's real permalink for one post (category path, custom overrides
- * and all) — the list itself never carries this (the fast path has no way to
- * compute it, see getPostPermalink's comment), so View/Preview/Copy URL fetch
- * it on click, through the same BFF pattern as every other admin write.
- */
-async function fetchPermalink(id: number): Promise<string | null> {
-  const res = await fetch(`/api/admin/posts/${id}/permalink`, { headers: { accept: "application/json" } });
-  if (!res.ok) return null;
-  const body = (await res.json()) as { link?: string };
-  return body.link || null;
-}
-
-const rowActionLink = css({ fontSize: "11.5px", background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit", _hover: { textDecoration: "underline" }, _disabled: { cursor: "default", textDecoration: "none" } });
 
 
 const STATUS_OPTIONS: Option[] = [
@@ -55,6 +40,51 @@ function statusDisplay(raw: string): Status {
   return "Draft";
 }
 const labelOf = (opts: Option[], value: string) => opts.find((o) => o.value === value)?.label ?? value;
+
+/**
+ * The FALLBACK when resolving a row's real permalink fails (or hasn't landed
+ * yet): WordPress's own ID-based form, `/?p={id}`. It needs no slug/category
+ * knowledge and WordPress always resolves it correctly (redirecting a
+ * published post to its pretty permalink), but it is not what a person wants
+ * to actually SEE in an address bar or paste into Slack — see resolvePostLink.
+ */
+const WP_ORIGIN = process.env.NEXT_PUBLIC_WP_ORIGIN ?? "https://education.ams.com.kh";
+const idHref = (id: number, status: string) => `${WP_ORIGIN}/?p=${id}${status === "publish" ? "" : "&preview=true"}`;
+
+/**
+ * The row's real, pretty permalink — category path, Custom Permalinks
+ * overrides and all. The list's own rows never carry this (they come from the
+ * fast SQL path, which structurally cannot compute it — see getPostPermalink's
+ * doc comment), so View/Copy URL resolve it on click, one round trip for the
+ * one row asked about. Falls back to the id-based form on any failure, so a
+ * flaky request never leaves the button simply doing nothing.
+ */
+async function resolvePostLink(id: number, status: string): Promise<string> {
+  try {
+    const res = await fetch(`/api/admin/posts/${id}/link`);
+    if (res.ok) {
+      const body = (await res.json()) as { link?: string };
+      if (body.link) return body.link;
+    }
+  } catch {
+    // network hiccup — fall through to the always-correct fallback below
+  }
+  return idHref(id, status);
+}
+
+const rowActionClass = css({
+  fontSize: "11.5px",
+  fontWeight: 500,
+  cursor: "pointer",
+  background: "none",
+  border: "none",
+  padding: 0,
+  margin: 0,
+  font: "inherit",
+  // Underline only — color stays whatever the caller set inline (muted for
+  // View/Edit/Copy, danger for Trash), so hovering Trash never reads as safe.
+  _hover: { textDecoration: "underline" },
+});
 
 interface Query { search: string; status: string; category: string; author: string; date: string; page: number }
 
@@ -92,34 +122,34 @@ export default function ArticlesView({
   const pathname = usePathname();
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [trashingId, setTrashingId] = useState<number | null>(null);
-  const [copiedId, setCopiedId] = useState<number | null>(null);
-  // Which row's real permalink is in flight, and for which of the two actions
-  // that need it — View/Preview (open) and Copy URL both hit the same BFF
-  // call, so a click on either disables both for that row until it resolves.
-  const [pendingPermalink, setPendingPermalink] = useState<{ id: number; action: "open" | "copy" } | null>(null);
-  // Permalinks resolved ahead of a click, keyed by post id — populated on row
-  // hover/focus (see prefetchPermalink) so "View"/"Preview" is a REAL <a href>
-  // by the time it's clicked (native middle-click/ctrl-click/right-click-copy
-  // all need an actual href, not a JS-only onClick). Ref, not state, tracks
-  // which ids are already in flight so a fast mouse re-entering the row
-  // doesn't fire a second fetch.
-  const [resolvedLinks, setResolvedLinks] = useState<Record<number, string>>({});
-  const prefetching = useRef<Set<number>>(new Set());
-
-  const prefetchPermalink = (id: number) => {
-    if (resolvedLinks[id] !== undefined || prefetching.current.has(id)) return;
-    prefetching.current.add(id);
-    void fetchPermalink(id)
-      .catch(() => null)
-      .then((link) => {
-        prefetching.current.delete(id);
-        if (link) setResolvedLinks((m) => ({ ...m, [id]: link }));
-      });
-  };
   // The row awaiting confirmation; the dialog stays up while the write runs so
   // a rejection lands in it rather than in a native alert.
   const [confirmTrash, setConfirmTrash] = useState<{ id: number; title: string; status: string } | null>(null);
   const [trashError, setTrashError] = useState<string | null>(null);
+  // Which row's URL was just copied — swaps that row's "Copy URL" label to
+  // "Copied!" for a moment. Cleared by id so a stale timer from a since-copied
+  // OTHER row can't blank out a fresher one.
+  const [copiedId, setCopiedId] = useState<number | null>(null);
+  // Resolved real permalinks, by post id — populated on hover (prefetchLink)
+  // so "View" can be a genuine <a href>, not a button faking one. A real
+  // anchor gets the browser's own new-tab/copy-link-address/status-bar-preview
+  // behavior for free; a JS window.open() stand-in does not.
+  const [linkCache, setLinkCache] = useState<Record<number, string>>({});
+
+  const prefetchLink = (id: number, status: string) => {
+    if (linkCache[id]) return;
+    void resolvePostLink(id, status).then((link) => {
+      setLinkCache((prev) => (prev[id] ? prev : { ...prev, [id]: link }));
+    });
+  };
+
+  const copyUrl = async (e: React.MouseEvent, id: number, status: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    void navigator.clipboard?.writeText(linkCache[id] ?? (await resolvePostLink(id, status)));
+    setCopiedId(id);
+    window.setTimeout(() => setCopiedId((cur) => (cur === id ? null : cur)), 1500);
+  };
 
   // Row-level "move to trash". Lives on the row (a Link), so the handler must
   // swallow the navigation.
@@ -149,52 +179,6 @@ export default function ArticlesView({
     // plugin reconstructs the pre-trash URL — see afa 1.17.1); drafts and
     // scheduled posts never had public pages, so nothing to clear for them.
     if (target.status === "publish") startLegacyRefresh(target.id);
-  };
-
-  // Fallback for "View"/"Preview" when the row's <a href> hasn't resolved yet
-  // (a click faster than the hover-prefetch — see prefetchPermalink and the
-  // <a>'s own onClick, which only calls this when resolvedLinks has nothing).
-  // Opens the tab SYNCHRONOUSLY (before the await) and redirects it once the
-  // fetch resolves — opening it only after the await is what popup blockers
-  // catch. Can't pass the `noopener` FEATURE to window.open here: browsers
-  // then return null instead of the window reference this needs to navigate
-  // later. Severing window.opener by hand right after achieves the same
-  // tabnabbing protection without losing the reference.
-  const openPermalink = async (e: React.MouseEvent, id: number) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (pendingPermalink) return;
-    const win = window.open("", "_blank");
-    if (win) win.opener = null;
-    setPendingPermalink({ id, action: "open" });
-    const link = await fetchPermalink(id).catch(() => null);
-    setPendingPermalink((p) => (p?.id === id && p.action === "open" ? null : p));
-    if (link) win?.location.replace(link);
-    else win?.close();
-  };
-
-  // Row-level "copy URL" — reuses a hover-prefetched link when there is one,
-  // same as the View <a> does, instead of always paying the round trip.
-  const copyUrl = async (e: React.MouseEvent, id: number) => {
-    e.preventDefault();
-    e.stopPropagation();
-    let link = resolvedLinks[id];
-    if (!link) {
-      if (pendingPermalink) return;
-      setPendingPermalink({ id, action: "copy" });
-      link = (await fetchPermalink(id).catch(() => null)) ?? "";
-      setPendingPermalink((p) => (p?.id === id && p.action === "copy" ? null : p));
-    }
-    if (!link) return;
-    navigator.clipboard
-      .writeText(link)
-      .then(() => {
-        setCopiedId(id);
-        setTimeout(() => setCopiedId((c) => (c === id ? null : c)), 1500);
-      })
-      .catch(() => {
-        // Clipboard permission denied or unavailable — nothing to recover into.
-      });
   };
 
   const go = (next: Partial<Omit<Query, "page">> & { page?: number }) => {
@@ -347,9 +331,12 @@ export default function ArticlesView({
                 items.map((a) => (
                   <Tr
                     key={a.id}
-                    className={css({ "&:hover [data-go]": { opacity: 1, transform: "translateX(0)" }, "&:hover [data-thumb]": { borderColor: "var(--colors-admin-border-strong)" }, "&:hover [data-row-actions]": { opacity: 1 }, "&:focus-within [data-row-actions]": { opacity: 1 } })}
-                    onMouseEnter={() => prefetchPermalink(a.id)}
-                    onFocus={() => prefetchPermalink(a.id)}
+                    onMouseEnter={() => prefetchLink(a.id, a.status)}
+                    onFocus={() => prefetchLink(a.id, a.status)}
+                    className={css({
+                      "&:hover [data-go], &:focus-within [data-go]": { opacity: 1, transform: "translateX(0)" },
+                      "&:hover [data-thumb]": { borderColor: "var(--colors-admin-border-strong)" },
+                    })}
                   >
                     <Td>
                       {a.thumb ? (
@@ -363,57 +350,37 @@ export default function ArticlesView({
                       <Link href={`/admin/articles/${a.id}`} className={css({ fontSize: "14.5px", lineHeight: 1.55, lineClamp: 2, display: "block", _hover: { textDecoration: "underline" } })}>
                         {a.title}
                       </Link>
-                      {/* WordPress-style row actions, revealed on hover/focus — see
-                          the Tr's "&:hover [data-row-actions]" rule above, which
-                          also fires prefetchPermalink: WordPress's REAL permalink
-                          (custom overrides, category paths — the fast-path list
-                          has no way to compute it) is fetched as soon as the row
-                          is hovered/focused, so by the time "View" is actually
-                          clicked it is a real <a href>, not just an onClick — native
-                          middle-click/ctrl-click/right-click-copy all need one.
-                          openPermalink is only the fallback for a click faster than
-                          the prefetch. Label says what a published post's link IS
-                          ("View"); anything else calls it "Preview" since
-                          WordPress's own link for an unpublished post is its
-                          preview placeholder, not a public page. */}
-                      <div data-row-actions className={css({ display: "flex", alignItems: "center", gap: "6px", marginTop: "4px", opacity: 0, transition: "opacity .12s ease" })}>
+                      {/* WordPress's own row-actions pattern: hidden until the row
+                          is hovered, then a pipe-separated line of what you can
+                          do to THIS post without opening it. */}
+                      <div data-go className={css({ display: "flex", alignItems: "center", gap: "6px", height: "15px", marginTop: "4px", opacity: 0, transition: "opacity .14s ease" })}>
                         <a
-                          href={resolvedLinks[a.id] ?? "#"}
+                          href={linkCache[a.id] ?? idHref(a.id, a.status)}
                           target="_blank"
                           rel="noopener noreferrer"
-                          aria-disabled={pendingPermalink?.id === a.id && pendingPermalink.action === "open"}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (!resolvedLinks[a.id]) void openPermalink(e, a.id);
-                          }}
-                          className={rowActionLink}
-                          style={{ color: pendingPermalink?.id === a.id && pendingPermalink.action === "open" ? ac.faint : ac.accentText }}
+                          onClick={(e) => e.stopPropagation()}
+                          className={rowActionClass}
+                          style={{ color: ac.muted }}
                         >
-                          {pendingPermalink?.id === a.id && pendingPermalink.action === "open" ? "Opening…" : a.status === "publish" ? "View" : "Preview"}
+                          {a.status === "publish" ? "View" : "Preview"}
                         </a>
-                        <span aria-hidden style={{ color: ac.faint }}>|</span>
-                        <Link href={`/admin/articles/${a.id}`} className={rowActionLink} style={{ color: ac.accentText }}>
+                        <span aria-hidden style={{ color: ac.border }}>|</span>
+                        <Link href={`/admin/articles/${a.id}`} className={rowActionClass} style={{ color: ac.muted }}>
                           Edit
                         </Link>
-                        <span aria-hidden style={{ color: ac.faint }}>|</span>
-                        <button
-                          type="button"
-                          disabled={pendingPermalink !== null}
-                          onClick={(e) => void copyUrl(e, a.id)}
-                          className={rowActionLink}
-                          style={{ color: pendingPermalink?.id === a.id && pendingPermalink.action === "copy" ? ac.faint : ac.accentText }}
-                        >
-                          {pendingPermalink?.id === a.id && pendingPermalink.action === "copy" ? "Copying…" : copiedId === a.id ? "Copied!" : "Copy URL"}
+                        <span aria-hidden style={{ color: ac.border }}>|</span>
+                        <button type="button" onClick={(e) => copyUrl(e, a.id, a.status)} className={rowActionClass} style={{ color: ac.muted }}>
+                          {copiedId === a.id ? "Copied!" : "Copy URL"}
                         </button>
-                        <span aria-hidden style={{ color: ac.faint }}>|</span>
+                        <span aria-hidden style={{ color: ac.border }}>|</span>
                         <button
                           type="button"
                           disabled={trashingId !== null}
                           onClick={(e) => trash(e, a.id, a.title, a.status)}
-                          className={rowActionLink}
-                          style={{ color: trashingId === a.id ? ac.faint : ac.danger }}
+                          className={rowActionClass}
+                          style={{ color: ac.danger }}
                         >
-                          Trash
+                          {trashingId === a.id ? "Trashing…" : "Trash"}
                         </button>
                       </div>
                     </Td>
@@ -428,6 +395,9 @@ export default function ArticlesView({
                     </Td>
                     <Td><StatusPill status={statusDisplay(a.status)} /></Td>
                     <Td align="right">
+                      {/* The trash action moved into the title's row-actions
+                          line below; this chevron is only the "opens on click"
+                          affordance, so it keeps its own hover-reveal. */}
                       <span data-go className={css({ display: "flex", justifyContent: "flex-end", opacity: 0, transition: "opacity .14s ease, transform .14s ease" })} style={{ transform: "translateX(-4px)", color: ac.faint }}>
                         <Icon name="chevronRight" size={15} strokeWidth={2} />
                       </span>
