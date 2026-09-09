@@ -24,6 +24,7 @@ interface RawEditPost {
   title: { raw?: string; rendered?: string };
   content: { raw?: string; rendered?: string };
   excerpt: { raw?: string; rendered?: string };
+  author: number;
   categories: number[];
   tags: number[];
   featured_media: number;
@@ -35,6 +36,7 @@ interface RawEditPost {
   sticky?: boolean;
   meta?: Record<string, unknown>;
   _embedded?: {
+    author?: { name?: string }[];
     "wp:featuredmedia"?: {
       source_url?: string;
       // Open record rather than two named keys: WordPress generates whatever
@@ -110,6 +112,8 @@ export interface EditablePost {
    *  this site has custom permalink overrides). "" when WordPress didn't
    *  return one; the preview control hides rather than guess. */
   link: string;
+  authorId: number;
+  authorName: string;
   categoryIds: number[];
   tags: { id: number; name: string }[];
   featuredMedia: number;
@@ -137,6 +141,9 @@ export interface PostWrite {
   slug?: string;
   categories?: number[];
   tags?: number[];
+  /** Reassigns the post. Omitted, not 0/undefined-as-clear — WordPress has no
+   *  "no author," so this is set-or-leave-alone, like `slug`. */
+  author?: number;
   featured_media?: number;
   /** Post template. "" is a legal, meaningful value (WordPress's "Default
    *  template"), so this is set-or-omit like `password`, never set-or-clear. */
@@ -157,8 +164,8 @@ export async function getPostForEdit(id: number): Promise<EditablePost | null> {
   const { data } = await adminFetch<RawEditPost>(`/wp/v2/posts/${id}`, {
     query: {
       context: "edit",
-      _fields: "id,date,slug,status,link,title,content,excerpt,categories,tags,featured_media,template,password,sticky,meta,_links,_embedded",
-      _embed: "wp:featuredmedia,wp:term",
+      _fields: "id,date,slug,status,link,title,content,excerpt,author,categories,tags,featured_media,template,password,sticky,meta,_links,_embedded",
+      _embed: "author,wp:featuredmedia,wp:term",
     },
   });
   if (!data?.id) return null;
@@ -176,6 +183,8 @@ export async function getPostForEdit(id: number): Promise<EditablePost | null> {
     slug: data.slug ?? "",
     status: data.status,
     link: data.link ?? "",
+    authorId: data.author ?? 0,
+    authorName: decodeEntities(data._embedded?.author?.[0]?.name ?? "").trim(),
     password: typeof data.password === "string" ? data.password : "",
     sticky: data.sticky === true,
     categoryIds: data.categories ?? [],

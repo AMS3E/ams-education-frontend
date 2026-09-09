@@ -10,6 +10,7 @@ import { Icon } from "../icons";
 import { Button, Checkbox, Input, StatusPill, Textarea } from "../ui";
 import type { EditablePost, PostTemplate } from "@/lib/admin/post-edit";
 import type { CategoryNode } from "@/lib/admin/categories";
+import type { AuthorOption } from "@/lib/admin/users";
 import { suggestTemplate } from "@/lib/admin/article-template";
 import { Dropdown } from "../Dropdown";
 import { useQueryClient } from "@tanstack/react-query";
@@ -142,6 +143,7 @@ interface EditorSnapshot {
   password: string;
   sticky: boolean;
   categories: number[];
+  authorId: number;
   template: string;
   templateTouched: boolean;
   tags: TagOption[];
@@ -181,6 +183,8 @@ export default function ArticleEditor({
   post = null,
   categories,
   templates = [],
+  authors = [],
+  currentAuthor = null,
 }: {
   post?: EditablePost | null;
   categories: CategoryNode[];
@@ -188,6 +192,15 @@ export default function ArticleEditor({
    *  below 1.19.0 or the call failed — the control still renders, with
    *  "Default template" and whatever the post already carries. */
   templates?: PostTemplate[];
+  /** Who the Author row can assign to — the same list the Articles list's own
+   *  author filter uses. Empty hides the row rather than offer a picker with
+   *  nothing in it. */
+  authors?: AuthorOption[];
+  /** The signed-in user, so a brand-new article's Author row reads their name
+   *  (what WordPress would assign anyway) instead of blank before the first
+   *  save. Ignored once `post` exists — its own author is the source of truth
+   *  then. */
+  currentAuthor?: AuthorOption | null;
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -332,6 +345,12 @@ export default function ArticleEditor({
    *  claims a protection that won't save. Unticking clears the field. */
   const [pwOpen, setPwOpen] = useState(() => (post?.password ?? "").trim().length > 0);
   const [sticky, setSticky] = useState(post?.sticky ?? false);
+  // Author — 0/"" until known (a new article whose profile fetch failed);
+  // buildPayload then omits `author` entirely rather than writing a bogus id,
+  // so WordPress falls back to assigning the signed-in user itself.
+  const [authorId, setAuthorId] = useState(post?.authorId ?? currentAuthor?.id ?? 0);
+  const [authorName, setAuthorName] = useState(post?.authorName ?? currentAuthor?.name ?? "");
+  const [authorDialogOpen, setAuthorDialogOpen] = useState(false);
   /** A private post has no password field at all, so protection only exists in
    *  the other statuses. Derived rather than stored — two sources of truth for
    *  one WordPress concept is how the screen ends up lying about the data. */
@@ -452,6 +471,7 @@ export default function ArticleEditor({
         .filter((k) => checked[Number(k)])
         .map(Number)
         .sort((a, b) => a - b),
+      authorId,
       template,
       templateTouched,
       tags,
@@ -743,6 +763,8 @@ export default function ArticleEditor({
       categories: Object.entries(checked).filter(([, v]) => v).map(([id]) => Number(id)),
       // For scoped cache revalidation on publish (see refreshPublic).
       categorySlugs: categories.filter((c) => checked[c.id]).map((c) => c.slug),
+      // Omitted (not 0) when unknown — see the authorId state comment.
+      ...(authorId > 0 ? { author: authorId } : {}),
       tags: tags.map((t) => t.id),
       featuredMedia: featuredId,
       // A private post cannot also be password-protected in WordPress, so the
@@ -1100,6 +1122,47 @@ export default function ArticleEditor({
           <p className={cx(noteText, css({ margin: "2px 4px 0" }))} style={{ color: ac.muted }}>
             Not saved yet — press <strong style={{ color: ac.text, fontWeight: 600 }}>{primaryLabel}</strong> to apply it.
           </p>
+        ) : null}
+
+        {/* AUTHOR — wp-admin's own "Publish" box row, right below Status &
+            visibility. Hidden (not disabled) when the authors list didn't
+            load: a picker with nothing in it is worse than no picker.
+            Opens a search-first PANEL anchored under this row (own relative
+            wrapper, same anatomy as the Status & visibility popover) rather
+            than the usual Dropdown menu — the picker is a plain scroll, and a
+            newsroom with dozens of contributors needs to type a name, not
+            hunt a list. */}
+        {authors.length > 0 ? (
+          <div className={css({ position: "relative" })}>
+            <div className={cx(rowBetween, css({ gap: "14px" }))} style={{ minHeight: 32 }}>
+              <span className={metaLabel} style={{ color: ac.muted, flex: "none" }}>Author</span>
+              <button
+                type="button"
+                onClick={() => setAuthorDialogOpen((v) => !v)}
+                aria-expanded={authorDialogOpen}
+                aria-haspopup="dialog"
+                className={css({ fontSize: "12.5px", fontWeight: 600, cursor: "pointer", border: "none", background: "transparent", padding: "2px 0", display: "flex", alignItems: "center", gap: "4px", maxWidth: "100%", minWidth: 0, _hover: { textDecoration: "underline" } })}
+                style={{ color: authorId > 0 ? ac.accentText : ac.muted }}
+              >
+                <span className={css({ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" })}>
+                  {authorName || "Select author"}
+                </span>
+                <Icon name="chevronDown" size={12} style={{ color: ac.muted, flex: "none" }} />
+              </button>
+            </div>
+
+            {authorDialogOpen ? (
+              <AuthorDialog
+                authors={authors}
+                selectedId={authorId}
+                onSelect={(id, name) => {
+                  setAuthorId(id);
+                  setAuthorName(name);
+                }}
+                onClose={() => setAuthorDialogOpen(false)}
+              />
+            ) : null}
+          </div>
         ) : null}
 
         {/* TEMPLATE — which theme layout renders the article's TAIL on the
@@ -1850,6 +1913,87 @@ function CatBlock({ children }: { children: ReactNode }) {
     >
       {children}
     </div>
+  );
+}
+
+// --- author dialog -----------------------------------------------------------
+
+/** Every possible author, one search box, one click to reassign. Anchored
+ *  under the Author row it belongs to — same anatomy as the Status &
+ *  visibility popover (invisible fixed backdrop for outside-click, no
+ *  stopPropagation needed since the panel paints over it) — rather than
+ *  CategoriesDialog's centered overlay, which read as a whole-screen
+ *  interruption for what is a one-click, single-select pick. */
+function AuthorDialog({
+  authors,
+  selectedId,
+  onSelect,
+  onClose,
+}: {
+  authors: AuthorOption[];
+  selectedId: number;
+  onSelect: (id: number, name: string) => void;
+  onClose: () => void;
+}) {
+  const [q, setQ] = useState("");
+  const query = q.trim().toLowerCase();
+  const filtered = query ? authors.filter((a) => a.name.toLowerCase().includes(query)) : authors;
+
+  return (
+    <>
+      <div onClick={onClose} className={css({ position: "fixed", inset: 0, zIndex: 25 })} />
+      <div
+        role="dialog"
+        aria-label="Select author"
+        className={css({ position: "absolute", top: "100%", right: 0, marginTop: "6px", zIndex: 30, width: "300px", height: "250px", display: "flex", flexDirection: "column", borderRadius: "12px", overflow: "hidden" })}
+        style={{ background: ac.surface, border: `1px solid ${ac.border}`, boxShadow: ac.shadowMd }}
+      >
+        <div className={css({ display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px", flex: "none" })} style={{ borderBottom: `1px solid ${ac.border}` }}>
+          <div className={css({ position: "relative", flex: 1 })}>
+            <Icon name="search" size={13} style={{ position: "absolute", left: 12, top: 11, color: ac.faint, pointerEvents: "none" }} />
+            <Input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search authors…" style={{ paddingLeft: 34 }} />
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className={css({ width: "26px", height: "26px", borderRadius: "7px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", border: "none", background: "transparent", flex: "none", _hover: { background: ac.surfaceHover } })}
+            style={{ color: ac.muted }}
+          >
+            <Icon name="x" size={13} strokeWidth={2.2} />
+          </button>
+        </div>
+
+        <div className={css({ flex: 1, minHeight: 0, overflowY: "auto", padding: "6px" })}>
+          {filtered.length === 0 ? (
+            <div className={css({ fontSize: "13px", padding: "24px 0", textAlign: "center" })} style={{ color: ac.muted }}>
+              No authors match &ldquo;{q}&rdquo;.
+            </div>
+          ) : (
+            filtered.map((a) => {
+              const selected = a.id === selectedId;
+              return (
+                <button
+                  key={a.id}
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  onClick={() => {
+                    onSelect(a.id, a.name);
+                    onClose();
+                  }}
+                  className={css({ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", width: "100%", textAlign: "left", padding: "8px 10px", borderRadius: "8px", cursor: "pointer", fontSize: "13px", border: "none", background: "transparent", fontFamily: "inherit", _hover: { background: ac.surfaceHover } })}
+                  style={{ color: selected ? ac.text : ac.sub }}
+                >
+                  <span className={css({ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" })}>{a.name}</span>
+                  {selected ? <Icon name="check" size={13} strokeWidth={2.4} style={{ color: ac.accentText, flex: "none" }} /> : null}
+                </button>
+              );
+            })
+          )}
+        </div>
+      </div>
+    </>
   );
 }
 

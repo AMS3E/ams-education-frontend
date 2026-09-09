@@ -28,6 +28,11 @@ export interface EditorPayload {
   /** Slugs of the checked categories — used only to scope cache revalidation
    *  to the affected category pages (the editor has them at hand). */
   categorySlugs: string[];
+  /** Reassigns the post. ABSENT (undefined) when the editor never learned who
+   *  the author is (a new article whose profile fetch failed) — WordPress
+   *  then defaults it to the signed-in user itself, same as omitting `slug`
+   *  means "generate one". */
+  author?: number;
   /** Tag term ids (the typeahead resolves names → ids, creating as needed). */
   tags: number[];
   /** Featured-image attachment id; 0 = leave unset/clear. */
@@ -73,6 +78,7 @@ function toWrite(p: EditorPayload): PostWrite {
     excerpt: p.excerpt,
     status: p.status,
     categories: p.categories,
+    ...(p.author !== undefined ? { author: p.author } : {}),
     tags: p.tags,
     featured_media: p.featuredMedia,
     password: p.password,
