@@ -148,6 +148,44 @@
   margin: 0 0 4px;
 }
 
+/* Gallery block, "Columns" set to 2: every image rendered full-width, one per
+ * row, instead of two-up. block-library's own style.css defines explicit
+ * width rules for .columns-1 and .columns-3 through .columns-8 on the modern
+ * (has-nested-images) gallery markup — .columns-2 is simply absent from the
+ * shipped stylesheet (checked node_modules/@wordpress/block-library/build-style/style.css).
+ * There is an unqualified fallback rule that computes the same 50% width, but
+ * it carries lower specificity than WP's own .columns-N rules, so it loses to
+ * whatever else is in play. Same formula WP uses for .columns-3 etc., just
+ * with an explicit .columns-2 in the selector so it actually wins. */
+.editor-styles-wrapper .wp-block-gallery.has-nested-images.columns-2 figure.wp-block-image:not(#individual-image) {
+  width: calc(50% - var(--wp--style--unstable-gallery-gap, 16px) * 0.5);
+}
+
+/* Gallery block, ANY column count: every image rendered full-width, one per
+ * row — the .columns-N width rules above (WP's own, or the .columns-2 patch)
+ * compute the right per-image width, but nothing ever WRAPS them into a row,
+ * because .wp-block-gallery carries NO static `display:flex` anywhere in
+ * block-library's CSS (verified: no bare `.wp-block-gallery {}` rule exists,
+ * unlike .wp-block-columns which hardcodes flex+wrap unconditionally). Real
+ * WordPress gets the flex container from a PER-BLOCK style WP generates at
+ * render time for "layout: flex" block support — PHP's block-supports/layout.php
+ * on the live site, and @wordpress/block-editor's own BlockWithLayoutStyles
+ * (hooks/layout.js) in real wp-admin, which needs the full iframed post editor
+ * this app deliberately doesn't use (see GutenbergEditor.tsx's header comment
+ * on why: this is a bare BlockEditorProvider + BlockList, not @wordpress/editor).
+ * That per-block <style> injection never fires here, so the `is-layout-flex`
+ * class lands in the DOM with nothing backing it — confirmed by rendering the
+ * real stored markup for a gallery post against exactly this app's CSS bundle
+ * in isolation: `display: block` on the gallery, correct widths on every
+ * image, zero wrapping. One generic static rule replaces the missing
+ * per-block one. */
+.editor-styles-wrapper .wp-block-gallery.is-layout-flex {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--wp--style--unstable-gallery-gap, 16px);
+}
+
 /* Anything that scrolls a block into view — Tab focus, the editor's own
  * scroll-into-view, an automated click — parks it at the very top of the
  * viewport, which is now UNDER the sticky band (56px app bar + 56px band) and
