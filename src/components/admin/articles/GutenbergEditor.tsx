@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { parse, serialize, type Block } from "@wordpress/blocks";
 import { registerCoreBlocks } from "@wordpress/block-library";
-import { applyMediaSpacers, newDocumentBlocks } from "./spacers";
+import { applyMediaSpacers, newDocumentBlocks, withClosingSpacer } from "./spacers";
 import {
   BlockEditorProvider,
   BlockInspector,
@@ -414,7 +414,7 @@ export default function GutenbergEditor({
     const handle: BodyEditorHandle = {
       // serialize() emits canonical block markup — the same bytes wp-admin
       // would write for the same document.
-      getHtml: () => (blocksRef.current.length ? serialize(blocksRef.current) : ""),
+      getHtml: () => (blocksRef.current.length ? serialize(withClosingSpacer(blocksRef.current)) : ""),
       isDirty: () => dirtyRef.current,
     };
     register(handle);

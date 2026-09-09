@@ -41,6 +41,8 @@ export const OPENER_HEIGHT = "10px";
 export const MEDIA_SPACER_HEIGHT = "30px";
 /** Marks a spacer as one WE placed, so the sweep never eats an author's own. */
 export const MEDIA_SPACER_CLASS = "ams-media-spacer";
+/** HTML id (block anchor) on the spacer `withClosingSpacer` appends at save. */
+export const CLOSING_SPACER_ANCHOR = "spacer-last";
 
 /** Owner's call (2026-08-24): image, video and gallery. Nothing else. */
 const MEDIA_BLOCKS = new Set(["core/image", "core/video", "core/gallery"]);
@@ -51,6 +53,7 @@ const isSpacer = (b: Block) => b.name === "core/spacer";
 const heightOf = (b: Block) => String((b.attributes as { height?: unknown })?.height ?? "");
 const classesOf = (b: Block) =>
   String((b.attributes as { className?: unknown })?.className ?? "").split(/\s+/);
+const anchorOf = (b: Block) => String((b.attributes as { anchor?: unknown })?.anchor ?? "");
 
 /**
  * A spacer this module owns.
@@ -203,4 +206,44 @@ export function applyMediaSpacers(next: Block[], previous: Block[]): Block[] {
   const result = freshMedia.size > 0 ? addBoundaries(swept, freshMedia) : swept;
 
   return result.length === next.length && result.every((b, i) => b === next[i]) ? next : result;
+}
+
+/**
+ * Every SAVED article ends on a 30px spacer, whatever block precedes it —
+ * image, paragraph, link, heading. Applied only at serialize-time (see
+ * `getHtml` in GutenbergEditor.tsx), never through `applyMediaSpacers`: doing
+ * it on every onChange would fight that module's own "author can delete it"
+ * contract, since the very next persistent edit would just add it straight
+ * back. A no-op when the document is empty or already ends on a spacer —
+ * this never stacks a second gap on top of one that's already there.
+ *
+ * Carries `anchor: CLOSING_SPACER_ANCHOR` (id="spacer-last" once serialized)
+ * so the front end can target this exact spacer — the theme's home page
+ * chrome that runs immediately after the article body, for instance.
+ *
+ * Behaves like a page footer, not a one-time insert: an EXISTING
+ * `spacer-last` is relocated to the true end rather than left where it sits.
+ * That block is a real, persisted one (parsed back in on the next edit
+ * session), so an author who writes more paragraphs after an earlier save
+ * strands it mid-document — without this it would stay stuck there while a
+ * second, duplicate-id spacer got appended below it.
+ */
+export function withClosingSpacer(blocks: Block[]): Block[] {
+  if (blocks.length === 0) return blocks;
+
+  const isClosingSpacer = (b: Block) => isSpacer(b) && anchorOf(b) === CLOSING_SPACER_ANCHOR;
+  const existing = blocks.find(isClosingSpacer);
+  const rest = existing ? blocks.filter((b) => b !== existing) : blocks;
+
+  if (existing) return [...rest, existing];
+
+  const last = rest[rest.length - 1];
+  if (last !== undefined && isSpacer(last)) return blocks;
+
+  const closer = createBlock("core/spacer", {
+    height: MEDIA_SPACER_HEIGHT,
+    className: MEDIA_SPACER_CLASS,
+    anchor: CLOSING_SPACER_ANCHOR,
+  });
+  return [...rest, closer];
 }
