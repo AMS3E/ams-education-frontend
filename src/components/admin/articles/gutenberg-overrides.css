@@ -148,6 +148,21 @@
   margin: 0 0 4px;
 }
 
+/* Panda's preflight (src/styled-system/styles.css, @layer reset) sets
+ * `a { color: inherit; text-decoration: inherit }` app-wide, which erases the
+ * browser's default link color/underline in RichText content too — a link
+ * typed or pasted into a paragraph rendered identically to plain text, with
+ * nothing to show it was a link (same root cause as the quote/list overrides
+ * above: the site's own theme editor-styles aren't loaded here, so anything
+ * that would normally come from them silently falls back to the reset).
+ * Restored to match the public article body's own link style
+ * (src/components/article/ArticleBody.tsx: `& a` → brand.blue, underlined),
+ * so a link looks the same in the editor as it will once published. */
+.editor-styles-wrapper a {
+  color: var(--colors-brand-blue);
+  text-decoration: underline;
+}
+
 /* Gallery block, "Columns" set to 2: every image rendered full-width, one per
  * row, instead of two-up. block-library's own style.css defines explicit
  * width rules for .columns-1 and .columns-3 through .columns-8 on the modern
