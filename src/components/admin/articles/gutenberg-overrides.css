@@ -76,6 +76,56 @@
  * (--wp-admin-theme-color resolves fine here, #007cba — that was never the
  * problem, despite a plausible first guess that it was.) */
 
+/* core/quote ships with NO visual decoration of its own — no left border, no
+ * mark — because that comes from whatever theme's editor styles are loaded,
+ * and we only load @wordpress/block-library's generic CSS (see the imports in
+ * GutenbergEditor.tsx), not the site's own theme. Real wp-admin previews this
+ * block through Vodi's editor styles, which draw a floated quote-mark icon
+ * before the text — without it, the block looks unstyled here even though a
+ * saved post shows the mark on the live site. Replicated from the theme's own
+ * rules (`.entry-content blockquote`, `blockquote:before`, `blockquote
+ * cite:before` in https://infotainment.ams.com.kh/wp-content/themes/vodi/style.css),
+ * the icon itself copied to public/assets/post-quote-icon.svg. */
+.editor-styles-wrapper .wp-block-quote {
+  background-color: #f5f5f5;
+  font-family: "Montserrat", "Open Sans", sans-serif;
+  font-style: italic;
+  padding: 24px;
+  border-left: none;
+}
+.editor-styles-wrapper .wp-block-quote::before {
+  content: "";
+  display: block;
+  float: left;
+  width: 64px;
+  height: 59px;
+  margin: 0 20px 10px 0;
+  background-image: url("/assets/post-quote-icon.svg");
+  background-size: contain;
+  background-repeat: no-repeat;
+}
+.editor-styles-wrapper .wp-block-quote::after {
+  content: "";
+  display: block;
+  clear: both;
+}
+.editor-styles-wrapper .wp-block-quote p {
+  font-size: 18px;
+  line-height: 1.5;
+  color: #19272e;
+}
+.editor-styles-wrapper .wp-block-quote cite {
+  display: block;
+  clear: both;
+  font-style: normal;
+  font-weight: 700;
+  font-size: 13px;
+}
+.editor-styles-wrapper .wp-block-quote cite::before {
+  content: "-";
+  padding-right: 4px;
+}
+
 /* Anything that scrolls a block into view — Tab focus, the editor's own
  * scroll-into-view, an automated click — parks it at the very top of the
  * viewport, which is now UNDER the sticky band (56px app bar + 56px band) and
