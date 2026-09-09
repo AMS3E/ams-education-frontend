@@ -48,13 +48,13 @@ const INK = "#F5F5F7";
 const INK_SUB = "rgba(245,245,247,0.62)";
 const INK_FAINT = "rgba(245,245,247,0.40)";
 const GROUND = "#0B0B0E";
-const VIOLET = "#59174D";
-const CRIMSON = "#C0233F";
-const GOLD = "#DE9838";
-const RING = `conic-gradient(from 210deg, ${VIOLET}, ${CRIMSON} 30%, ${GOLD} 55%, ${CRIMSON} 80%, ${VIOLET})`;
-const LINE_V = `linear-gradient(180deg, ${GOLD}, ${CRIMSON})`;
-const LINE_H = `linear-gradient(90deg, ${CRIMSON}, ${GOLD} 50%, ${CRIMSON})`;
-const LINE_GLOW = "0 0 14px rgba(222,152,56,0.35)";
+const BLUE_DEEP = "#0F2E7A";
+const BLUE = "#2F6FED";
+const BLUE_LIGHT = "#6FA8FF";
+const RING = `conic-gradient(from 210deg, ${BLUE_DEEP}, ${BLUE} 30%, ${BLUE_LIGHT} 55%, ${BLUE} 80%, ${BLUE_DEEP})`;
+const LINE_V = `linear-gradient(180deg, ${BLUE_LIGHT}, ${BLUE})`;
+const LINE_H = `linear-gradient(90deg, ${BLUE}, ${BLUE_LIGHT} 50%, ${BLUE})`;
+const LINE_GLOW = "0 0 14px rgba(47,111,237,0.4)";
 const ease = "cubic-bezier(0.2, 0.7, 0.2, 1)";
 
 const overlay = css({
@@ -88,9 +88,9 @@ const SIZE = {
   developer: css({ width: { base: "92px", sm: "108px" }, height: { base: "92px", sm: "108px" } }),
 } as const;
 const GLOW = {
-  head: "0 0 0 1px rgba(255,255,255,0.06), 0 0 56px rgba(192,35,63,0.55), 0 18px 40px rgba(0,0,0,0.6)",
-  coordinator: "0 0 0 1px rgba(255,255,255,0.06), 0 0 40px rgba(192,35,63,0.42), 0 14px 32px rgba(0,0,0,0.55)",
-  developer: "0 0 0 1px rgba(255,255,255,0.06), 0 0 32px rgba(192,35,63,0.36), 0 12px 28px rgba(0,0,0,0.5)",
+  head: "0 0 0 1px rgba(255,255,255,0.06), 0 0 56px rgba(47,111,237,0.55), 0 18px 40px rgba(0,0,0,0.6)",
+  coordinator: "0 0 0 1px rgba(255,255,255,0.06), 0 0 40px rgba(47,111,237,0.42), 0 14px 32px rgba(0,0,0,0.55)",
+  developer: "0 0 0 1px rgba(255,255,255,0.06), 0 0 32px rgba(47,111,237,0.36), 0 12px 28px rgba(0,0,0,0.5)",
 } as const;
 const caption = css({ marginTop: "12px", display: "flex", flexDirection: "column", alignItems: "center", gap: "3px" });
 const honorificCls = css({ fontSize: "10.5px", fontWeight: 600, letterSpacing: "0.12em", textTransform: "uppercase" });
@@ -104,7 +104,12 @@ const detailCls = css({ fontSize: { base: "12.5px", sm: "13.5px" }, fontWeight: 
 const spine = css({ display: "flex", flexDirection: "column", alignItems: "center" });
 const spineLine = css({ width: "2px", height: "26px" });
 const fan = css({ position: "relative", width: "100%", marginTop: 0 });
-const fanBar = css({ position: "absolute", top: 0, left: "calc(100% / 4)", right: "calc(100% / 4)", height: "2px" });
+const fanBar = css({
+  position: "absolute", top: 0,
+  left: { base: "calc((100% - 12px) / 4)", sm: "calc((100% - 24px) / 4)" },
+  right: { base: "calc((100% - 12px) / 4)", sm: "calc((100% - 24px) / 4)" },
+  height: "2px",
+});
 const teamGrid = css({ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", columnGap: { base: "12px", sm: "24px" } });
 const teamCol = css({ display: "flex", flexDirection: "column", alignItems: "center" });
 const stub = css({ width: "2px", height: "26px" });
@@ -119,7 +124,7 @@ function Portrait({ person, level, delay }: { person: Person; level: keyof typeo
       <figcaption className={caption}>
         <span className={honorificCls} style={{ color: INK_FAINT }}>{person.honorific}</span>
         <span className={NAME[level]} style={{ color: INK }}>{person.name}</span>
-        <span className={roleCls} style={{ color: GOLD }}>{person.role}</span>
+        <span className={roleCls} style={{ color: BLUE_LIGHT }}>{person.role}</span>
         <span className={detailCls} style={{ color: INK_SUB }}>{person.detail}</span>
       </figcaption>
     </figure>
@@ -150,16 +155,16 @@ function DepartmentChart({ onClose }: { onClose: () => void }) {
         style={{
           ["--dept-ground" as string]: GROUND,
           color: INK,
-          background: `radial-gradient(70% 42% at 50% -6%, rgba(192,35,63,0.42), transparent 70%), radial-gradient(46% 30% at 50% 104%, rgba(89,23,77,0.42), transparent 70%), ${GROUND}`,
+          background: `radial-gradient(70% 42% at 50% -6%, rgba(47,111,237,0.38), transparent 70%), radial-gradient(46% 30% at 50% 104%, rgba(15,46,122,0.5), transparent 70%), ${GROUND}`,
           border: "1px solid rgba(255,255,255,0.09)", boxShadow: "0 40px 100px rgba(0,0,0,0.7), 0 0 0 1px rgba(0,0,0,0.6)",
         }}>
         <button ref={closeRef} type="button" onClick={onClose} aria-label="Close" className={closeBtn}
           style={{ color: INK, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)" }}>
           <Icon name="x" size={16} strokeWidth={2} />
         </button>
-        <div className={eyebrow} style={{ color: GOLD }}>Apsara Media Services</div>
+        <div className={eyebrow} style={{ color: BLUE_LIGHT }}>Apsara Media Services</div>
         <h2 id="dept-title" className={title} style={{ color: INK }}>Digital Department</h2>
-        <div className={rule} style={{ background: `linear-gradient(90deg, transparent, ${CRIMSON} 30%, ${GOLD} 50%, ${CRIMSON} 70%, transparent)` }} />
+        <div className={rule} style={{ background: `linear-gradient(90deg, transparent, ${BLUE} 30%, ${BLUE_LIGHT} 50%, ${BLUE} 70%, transparent)` }} />
         <Portrait person={HEAD} level="head" delay={60} />
         <Spine delay={180} />
         <Portrait person={COORDINATOR} level="coordinator" delay={260} />
