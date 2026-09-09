@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { redirect } from "next/navigation";
 import { css, cx } from "@/styled-system/css";
 import { ac } from "@/components/admin/tokens";
@@ -10,6 +10,18 @@ import { getValidatedSession } from "@/lib/auth/session";
 export const metadata: Metadata = {
   title: "Sign in",
   robots: { index: false, follow: false },
+};
+
+// THIS PAGE ONLY extends under the iPhone home indicator (`viewport-fit=cover`):
+// that is what makes `env(safe-area-inset-bottom)` non-zero, so the frame below
+// can step its footer above the indicator. Per-page on purpose — the public
+// site's fixed furniture carries no safe-area padding of its own. Width and
+// scale restate Next's defaults so the tag stays `width=device-width,
+// initial-scale=1` with the one addition.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 // Top-level route (outside the (site) and /admin shells) so the sign-in screen
@@ -28,11 +40,20 @@ export default async function LoginPage() {
       className={cx(
         adminFont.variable,
         css({
+          // On a phone `100vh` is the viewport with the address bar HIDDEN, so
+          // a footer pinned to its bottom sits one bar-height below the fold
+          // until the user scrolls (measured: ~58px in Chrome). The SMALL
+          // viewport unit is the bar-showing height — what "visible on first
+          // paint" needs. `vh` stays as the fallback for browsers that predate
+          // it (2022); Panda cannot repeat a property, hence the @supports.
           minHeight: "100vh",
+          "@supports (min-height: 100svh)": { minHeight: "100svh" },
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
-          padding: "24px",
+          // Bottom edge also clears the iPhone home indicator (the `viewport`
+          // export above is what makes the inset non-zero); zero elsewhere.
+          padding: "24px 24px calc(24px + env(safe-area-inset-bottom))",
         }),
       )}
       style={{ background: ac.canvas, color: ac.text, fontFamily: ADMIN_FONT_STACK }}
@@ -50,11 +71,10 @@ export default async function LoginPage() {
           textAlign: "center",
           margin: 0,
           paddingTop: "24px",
-          "& strong": { color: { base: "#1840AB", _dark: "#48B8F0" }, fontWeight: 700 },
         })}
         style={{ color: ac.muted }}
       >
-        Copyright © {new Date().getFullYear()} AMS&nbsp;<strong>Education</strong>
+        © {new Date().getFullYear()} Apsara Media Services CO., LTD. All rights reserved.
       </p>
     </main>
   );
