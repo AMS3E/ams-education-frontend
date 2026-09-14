@@ -6,8 +6,10 @@
 // path. /sr-embed validates every value here against Slider Revolution's own
 // module table before rendering it.
 
-// Slider Revolution editor: slide id 5994.
-export const HOME_HERO_ALIAS = "cover-apr202021-11";
+// Read off the live homepage's own `data-alias` (education.ams.com.kh, 2026-09-14)
+// — "cover-apr202021-11" was stale: still a real slider (/sr-embed answers 200 for
+// it), just not the one the CMS currently has on the front page.
+export const HOME_HERO_ALIAS = "-Modern-Library";
 
 const HERO_ALIASES: Record<string, string> = {
   "entertainment-news": "cover-animation-14-12",
