@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AMS Frontend API
  * Description: General-purpose endpoints for the AMS Infotainment Next.js frontend (add new ones here as needed). Read-only + a standalone hero-slider embed + the homepage featured-program picker + anonymous REST commenting + per-user login tokens for authenticated writes + program custom-meta exposed to REST + skips AMS Cache's synchronous page warmer on dashboard writes (96s -> under 1s). Self-contained — deactivate/delete anytime with zero effect on anything else.
- * Version:     1.22.3
+ * Version:     1.22.4
  * Author:      Soth Kimleng
  *
  * Standalone "add endpoints as needed" API file, separate from the legacy
@@ -319,6 +319,11 @@ function ams_afa_embed_origins() {
         // Added rather than replacing http://localhost:3000 since it's
         // unconfirmed nothing else still hits this API over plain HTTP.
         'https://localhost:3000',
+        // 1.22.4: https://edit.edu.ams.com.kh is a live deployment of this
+        // frontend (confirmed serving the Next.js education site, not
+        // WordPress) that was missing from this list entirely — same
+        // "refused to connect" failure mode, found 2026-09-14.
+        'https://edit.edu.ams.com.kh',
     );
 }
 
