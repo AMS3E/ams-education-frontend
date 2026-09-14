@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AMS Frontend API
  * Description: General-purpose endpoints for the AMS Infotainment Next.js frontend (add new ones here as needed). Read-only + a standalone hero-slider embed + the homepage featured-program picker + anonymous REST commenting + per-user login tokens for authenticated writes + program custom-meta exposed to REST + skips AMS Cache's synchronous page warmer on dashboard writes (96s -> under 1s). Self-contained — deactivate/delete anytime with zero effect on anything else.
- * Version:     1.22.2
+ * Version:     1.22.3
  * Author:      Soth Kimleng
  *
  * Standalone "add endpoints as needed" API file, separate from the legacy
@@ -312,6 +312,13 @@ function ams_afa_embed_origins() {
         // this exact file/list.
         'https://edu.amscloud.cc',
         'https://ams-education-frontend.vercel.app',
+        // 1.22.3: `npm run dev` serves over HTTPS (--experimental-https, see
+        // this repo's CLAUDE.md) so the hero iframe's parent origin is
+        // https://localhost:3000, not the http:// entry above — same
+        // "refused to connect" failure mode, reproduced locally 2026-09-14.
+        // Added rather than replacing http://localhost:3000 since it's
+        // unconfirmed nothing else still hits this API over plain HTTP.
+        'https://localhost:3000',
     );
 }
 
