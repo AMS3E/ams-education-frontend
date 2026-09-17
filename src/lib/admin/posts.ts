@@ -44,6 +44,9 @@ export interface AdminPostRow {
   type: string;
   /** Display date, "30/07/2026" (site-local, no timezone shift applied). */
   date: string;
+  /** The same date raw, "2026-07-30T10:42:02" site-local — what a scheduled
+   *  row is compared against the site's clock with ("Missed schedule"). */
+  dateRaw: string;
   /** Raw ISO-8601 last-edited stamp, site-local, e.g. "2026-08-05T14:02:11".
    *  "" when the caller did not ask for it. The dashboard's activity feed is
    *  ordered by this, so it is also what that feed must label rows with. */
@@ -97,6 +100,7 @@ function mapRow(p: RawPost): AdminPostRow {
     status: p.status,
     type: p.type ?? "post",
     date: displayDate(p.date ?? ""),
+    dateRaw: p.date ?? "",
     modified: p.modified ?? "",
     slug: p.slug ?? "",
     authorName: p._embedded?.author?.[0]?.name ?? "",
@@ -178,6 +182,7 @@ export function mapFastRow(p: FastPostRow): AdminPostRow {
     status: p.status,
     type: p.type ?? "post",
     date: displayDate(p.date ?? ""),
+    dateRaw: p.date ?? "",
     modified: p.modified ?? "",
     slug: p.slug ?? "",
     authorName: p.authorName ?? "",

@@ -111,11 +111,10 @@ export const publishedPageBg = "var(--colors-page-bg)";
  *  separation, so a fifth hue would be a guess dressed as a decision. */
 export const CATEGORICAL = [ac.data, ac.cat2, ac.cat3, ac.cat4] as const;
 
-/** WordPress's post statuses, minus the one this server cannot honour:
- *  `future` (Scheduled). The site's loopback is broken, so WP-Cron never fires
- *  and a scheduled post simply never publishes — offering it would be a
- *  promise the server does not keep. See the Publish card. */
-export type Status = "Published" | "Pending" | "Draft" | "Private";
+/** WordPress's post statuses, `future` included as "Scheduled" — WordPress's
+ *  own WP-Cron publishes scheduled posts on this server (re-enabled on all
+ *  three sites 2026-09-15/16, S56); this app only sets the date. */
+export type Status = "Published" | "Scheduled" | "Pending" | "Draft" | "Private";
 
 export function statusColors(s: Status): { fg: string; bg: string } {
   switch (s) {
@@ -123,6 +122,10 @@ export function statusColors(s: Status): { fg: string; bg: string } {
       return { fg: ac.good, bg: ac.goodTint };
     case "Pending":
       return { fg: ac.warn, bg: ac.warnTint };
+    case "Scheduled":
+      // The accent's informational tone: queued and on its way, neither a
+      // warning nor "done". A missed schedule is the list's own warn badge.
+      return { fg: ac.data, bg: ac.dataSoft };
     case "Private":
       // Not a warning colour: private is a deliberate editorial state, not a
       // problem. Neutral reads as "restricted" without shouting.

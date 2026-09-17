@@ -6,9 +6,9 @@
  *  `future` is IN, and was missing: MEASURED 2026-08-11, a post scheduled from
  *  wp-admin appeared under `?status=future` but was absent from this list
  *  entirely, so a scheduled article was invisible in the tool that is supposed
- *  to be the newsroom's view of its own queue. Now that the scheduler actually
- *  publishes them (lib/admin/scheduler.ts), being able to see what is queued
- *  is the whole point. */
+ *  to be the newsroom's view of its own queue. WordPress's own WP-Cron
+ *  publishes them (re-enabled on all three sites 2026-09-15/16, S56); this
+ *  app only shows what is queued. */
 export const DEFAULT_STATUSES = "publish,future,draft,pending";
 
 /** The WordPress menu behind the public site's program-icon strip

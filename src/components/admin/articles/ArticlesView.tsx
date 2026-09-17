@@ -7,7 +7,7 @@ import { css } from "@/styled-system/css";
 import { ac, type Status } from "../tokens";
 import { Icon } from "../icons";
 import { Dropdown, SearchInput, PrimaryButton, type Option } from "../Dropdown";
-import { Surface, PageHeader, StatusPill, Table, Th, Td, Tr, TableFooter, Button, EmptyState } from "../ui";
+import { Surface, PageHeader, StatusPill, Badge, Table, Th, Td, Tr, TableFooter, Button, EmptyState } from "../ui";
 import { Bar, SkeletonKeyframes } from "../Skeleton";
 import RefreshButton from "../RefreshButton";
 import ConfirmDialog from "../ConfirmDialog";
@@ -16,6 +16,7 @@ import { trashPost } from "@/lib/admin/screen-actions";
 import LegacySiteChip, { startLegacyRefresh } from "../LegacySiteChip";
 import { DEFAULT_STATUSES } from "@/lib/admin/constants";
 import type { PostListResult } from "@/lib/admin/posts";
+import { isPastSiteDate, formatSiteTime } from "@/lib/admin/site-time";
 import type { CategoryNode } from "@/lib/admin/categories";
 import type { AuthorOption } from "@/lib/admin/users";
 
@@ -23,6 +24,7 @@ import type { AuthorOption } from "@/lib/admin/users";
 const STATUS_OPTIONS: Option[] = [
   { label: "All statuses", value: DEFAULT_STATUSES },
   { label: "Published", value: "publish" },
+  { label: "Scheduled", value: "future" },
   { label: "Pending", value: "pending" },
   { label: "Draft", value: "draft" },
 ];
@@ -36,8 +38,17 @@ const DATE_OPTIONS: Option[] = [
 
 function statusDisplay(raw: string): Status {
   if (raw === "publish") return "Published";
+  if (raw === "future") return "Scheduled";
   if (raw === "pending") return "Pending";
+  if (raw === "private") return "Private";
   return "Draft";
+}
+
+/** wp-admin's own label for a scheduled post whose time has passed without
+ *  WP-Cron publishing it. Now that cron runs, this should be rare — which is
+ *  exactly why it must be loud when it does show. */
+function missedSchedule(status: string, dateRaw: string): boolean {
+  return status === "future" && isPastSiteDate(dateRaw);
 }
 const labelOf = (opts: Option[], value: string) => opts.find((o) => o.value === value)?.label ?? value;
 
@@ -124,7 +135,13 @@ export default function ArticlesView({
   const [trashingId, setTrashingId] = useState<number | null>(null);
   // The row awaiting confirmation; the dialog stays up while the write runs so
   // a rejection lands in it rather than in a native alert.
-  const [confirmTrash, setConfirmTrash] = useState<{ id: number; title: string; status: string } | null>(null);
+  const [confirmTrash, setConfirmTrash] = useState<{
+    id: number;
+    title: string;
+    status: string;
+    /** For the public-page refresh after a trash (trashPost). */
+    slug: string;
+  } | null>(null);
   const [trashError, setTrashError] = useState<string | null>(null);
   // Which row's URL was just copied — swaps that row's "Copy URL" label to
   // "Copied!" for a moment. Cleared by id so a stale timer from a since-copied
@@ -153,12 +170,12 @@ export default function ArticlesView({
 
   // Row-level "move to trash". Lives on the row (a Link), so the handler must
   // swallow the navigation.
-  const trash = (e: React.MouseEvent, id: number, title: string, status: string) => {
+  const trash = (e: React.MouseEvent, id: number, title: string, status: string, slug: string) => {
     e.preventDefault();
     e.stopPropagation();
     if (trashingId) return;
     setTrashError(null);
-    setConfirmTrash({ id, title, status });
+    setConfirmTrash({ id, title, status, slug });
   };
 
   const doTrash = async () => {
@@ -166,7 +183,7 @@ export default function ArticlesView({
     if (!target || trashingId) return;
     setTrashingId(target.id);
     setTrashError(null);
-    const res = await trashPost(target.id);
+    const res = await trashPost(target.id, target.status === "publish" ? target.slug : undefined);
     setTrashingId(null);
     if (!res.ok) {
       setTrashError(res.error ?? "Couldn't move the post to trash.");
@@ -376,7 +393,7 @@ export default function ArticlesView({
                         <button
                           type="button"
                           disabled={trashingId !== null}
-                          onClick={(e) => trash(e, a.id, a.title, a.status)}
+                          onClick={(e) => trash(e, a.id, a.title, a.status, a.slug)}
                           className={rowActionClass}
                           style={{ color: ac.danger }}
                         >
@@ -391,9 +408,26 @@ export default function ArticlesView({
                       <span className={css({ fontSize: "12.5px", lineClamp: 2, display: "block" })} style={{ color: ac.muted }}>{a.authorName}</span>
                     </Td>
                     <Td>
-                      <span className={css({ fontSize: "12.5px", fontVariantNumeric: "tabular-nums" })} style={{ color: ac.muted }}>{a.date}</span>
+                      <span className={css({ fontSize: "12.5px", fontVariantNumeric: "tabular-nums" })} style={{ color: ac.muted }}>
+                        {a.date}
+                        {/* A scheduled row is ABOUT its moment, so the time
+                            rides under the day (owner's call, 2026-09-16);
+                            every other row keeps the day alone. */}
+                        {a.status === "future" && a.dateRaw ? (
+                          <>
+                            <br />
+                            {formatSiteTime(a.dateRaw)}
+                          </>
+                        ) : null}
+                      </span>
                     </Td>
-                    <Td><StatusPill status={statusDisplay(a.status)} /></Td>
+                    <Td>
+                      {missedSchedule(a.status, a.dateRaw) ? (
+                        <Badge tone="warn" icon="clock">Missed schedule</Badge>
+                      ) : (
+                        <StatusPill status={statusDisplay(a.status)} />
+                      )}
+                    </Td>
                     <Td align="right">
                       {/* The trash action moved into the title's row-actions
                           line below; this chevron is only the "opens on click"

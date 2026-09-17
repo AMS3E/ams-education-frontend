@@ -307,16 +307,16 @@ export default function DashboardScreen({ firstName }: { firstName: string }) {
                       note={queue.draftsStale > 0 ? `${queue.draftsStale} untouched for 30 days` : undefined}
                     />
                   ) : null}
-                  {/* Only when it bites: this server's loopback is broken, so
-                      WP-Cron never fires and a scheduled post never publishes. */}
+                  {/* WordPress's own WP-Cron publishes these at their time
+                      (re-enabled on this server 2026-09-16, S56); the list
+                      flags any that missed their slot. */}
                   {queue.scheduled > 0 ? (
                     <QueueRow
                       icon='calendar'
                       href='/admin/articles?status=future'
                       count={queue.scheduled}
-                      label={queue.scheduled === 1 ? "scheduled story is stuck" : "scheduled stories are stuck"}
-                      note='this server never publishes them — WP-Cron is broken'
-                      warn
+                      label={queue.scheduled === 1 ? "scheduled story queued" : "scheduled stories queued"}
+                      note='WordPress publishes them at their set time'
                     />
                   ) : null}
                   {/* Comments-awaiting-moderation row — PARKED by owner decision

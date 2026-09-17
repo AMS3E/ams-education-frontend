@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AMS Frontend API
  * Description: General-purpose endpoints for the AMS Infotainment Next.js frontend (add new ones here as needed). Read-only + a standalone hero-slider embed + the homepage featured-program picker + anonymous REST commenting + per-user login tokens for authenticated writes + program custom-meta exposed to REST + skips AMS Cache's synchronous page warmer on dashboard writes (96s -> under 1s). Self-contained — deactivate/delete anytime with zero effect on anything else.
- * Version:     1.22.4
+ * Version:     1.22.5
  * Author:      Soth Kimleng
  *
  * Standalone "add endpoints as needed" API file, separate from the legacy
@@ -41,7 +41,9 @@
  *        X-AMS-Token identifies. The frontend calls it to re-validate a stored
  *        session and refresh role gating. 401 when the token is missing/expired.
  *
- *  POST /wp-json/wp/v2/web/cache/purge  { post_id }        refresh AMS Cache (1.10.0, rebuilt 1.17.0)
+ *  POST /wp-json/wp/v2/web/cache/purge  { post_id }        refresh AMS Cache (1.10.0, rebuilt 1.17.0;
+ *                                                          1.22.5 purges the article's LIVE path after
+ *                                                          an unpublish/reschedule/trash too)
  *        Deletes the WordPress site's OWN cached HTML for the pages a post
  *        appears on: its page, the homepage, its category/tag archives, AND
  *        every published landing Page (/strange/ and its ~55 siblings render
@@ -269,7 +271,7 @@ function ams_afa_hero_aliases() {
 /** Bumped on every release. Part of the embed cache key, so shipping a new
  *  version invalidates every cached frame rather than leaving stale HTML (and a
  *  stale AMS_PARENTS list) behind a deploy. */
-define( 'AMS_AFA_VERSION', '1.20.1' );
+define( 'AMS_AFA_VERSION', '1.22.5' );
 
 /** How long a rendered embed is reused server-side. The cost it avoids is a
  *  ~3.7s WordPress boot; the price is that a slider edited in wp-admin takes up
@@ -1958,6 +1960,37 @@ function ams_afa_cache_purge( WP_REST_Request $req ) {
 }
 
 /**
+ * The address a post has, or HAD, on the public site — whatever its status now.
+ *
+ * (Ported from infotainment's afa 1.23.0, 2026-09-16.) get_permalink() answers
+ * `?p=<id>` for any status that is not publicly viewable
+ * (wp_force_plain_post_permalink: draft, pending, future, trash…). The
+ * dashboard calls the purge AFTER an unpublish, a reschedule or a trash, so by
+ * then the post IS one of those — and `?p=<id>` normalises to the path "/",
+ * i.e. the HOMEPAGE key. The article's own cached page, the one that now shows
+ * a withdrawn article to the public, was never purged; it kept serving until
+ * the 24 h TTL. (The 1.17.x "__trashed" fix only ever patched the trash case,
+ * and only when the pretty link came back at all.)
+ *
+ * So the link is computed from a PUBLISHED copy of the post: same id, same
+ * slug (minus wp_trash_post's "__trashed" suffix), same categories and date —
+ * exactly the path AMS Cache stored the page under while it was live. Core
+ * keeps the passed WP_Post object as-is (get_post() returns an instance
+ * unchanged), so no query and nothing is written.
+ */
+function ams_afa_live_permalink( $post ) {
+    $post = get_post( $post );
+    if ( ! $post ) {
+        return '';
+    }
+    $live              = clone $post;
+    $live->post_status = 'publish';
+    $live->post_name   = str_replace( '__trashed', '', (string) $live->post_name );
+    $url               = get_permalink( $live );
+    return is_string( $url ) ? $url : '';
+}
+
+/**
  * The pages a post can appear on BY RELATIONSHIP, deduped by cache path: the
  * homepage, the post's own page, and — for an article — every category it sits
  * in plus that category's ancestors (WP archives list descendants' posts too)
@@ -1970,15 +2003,8 @@ function ams_afa_cache_purge_targets( $post ) {
         array( 'url' => home_url( '/' ), 'label' => 'Homepage' ),
     );
 
-    $permalink = get_permalink( $post );
-    if ( $permalink && 'trash' === $post->post_status ) {
-        /* The dashboard purges AFTER a trash completes — and wp_trash_post()
-         * has renamed the slug to "<slug>__trashed" by then, so get_permalink
-         * names a path that was never cached. The stale page — now serving a
-         * DELETED article — lives at the original path; reconstruct it or this
-         * purge misses the one page a trash exists to remove. */
-        $permalink = str_replace( '__trashed', '', $permalink );
-    }
+    // The path the article had while live — see ams_afa_live_permalink().
+    $permalink = ams_afa_live_permalink( $post );
     if ( $permalink ) {
         $type_obj  = get_post_type_object( $post->post_type );
         $targets[] = array(
@@ -2040,11 +2066,11 @@ function ams_afa_cache_purge_targets( $post ) {
 
         if ( $show_id > 0 ) {
             if ( 'tv_show' !== $post->post_type ) {
-                $show_url = get_permalink( $show_id );
+                // A program trash trashes its container too — the same
+                // plain-link problem as the post itself (ams_afa_live_permalink).
+                $show_url = ams_afa_live_permalink( $show_id );
                 if ( $show_url ) {
-                    // A program trash trashes its container too — same
-                    // renamed-slug problem as the post itself above.
-                    $targets[] = array( 'url' => str_replace( '__trashed', '', $show_url ), 'label' => get_the_title( $show_id ) );
+                    $targets[] = array( 'url' => $show_url, 'label' => get_the_title( $show_id ) );
                 }
             }
             if ( 'movie' !== $post->post_type ) {

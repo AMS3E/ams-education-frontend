@@ -254,6 +254,7 @@ export function SearchInput({
   defaultValue,
   value,
   onValueChange,
+  autoFocus = false,
 }: {
   placeholder: string;
   width?: string;
@@ -261,12 +262,16 @@ export function SearchInput({
   defaultValue?: string;
   value?: string;
   onValueChange?: (v: string) => void;
+  /** For a search box that IS the popover's purpose (the editor's Author
+   *  picker): the caret lands in it as the panel opens. */
+  autoFocus?: boolean;
 }) {
   return (
     <div className={css({ position: "relative", flex: 1 })} style={{ maxWidth: width }}>
       <Icon name="search" size={15} style={{ position: "absolute", left: 12, top: 10, color: ac.faint }} />
       <input
         name={name}
+        autoFocus={autoFocus}
         defaultValue={value === undefined ? defaultValue : undefined}
         value={value}
         onChange={onValueChange ? (e) => onValueChange(e.target.value) : undefined}

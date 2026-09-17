@@ -3,16 +3,17 @@
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { css, cx } from "@/styled-system/css";
 import { ac, type Status } from "../tokens";
 import { Icon } from "../icons";
-import { Button, Checkbox, Input, StatusPill, Textarea } from "../ui";
+import { Button, Checkbox, Input, Segmented, StatusPill, Textarea } from "../ui";
 import type { EditablePost, PostTemplate } from "@/lib/admin/post-edit";
+import { siteNowIso, isFutureSiteDate, isPastSiteDate, parseSiteDate, formatSiteIso, clampSiteDate, siteNowMinuteIso, formatSiteDateLong, MONTHS_LONG, type SiteDateParts } from "@/lib/admin/site-time";
 import type { CategoryNode } from "@/lib/admin/categories";
 import type { AuthorOption } from "@/lib/admin/users";
 import { suggestTemplate } from "@/lib/admin/article-template";
-import { Dropdown } from "../Dropdown";
+import { Dropdown, SearchInput } from "../Dropdown";
 import { useQueryClient } from "@tanstack/react-query";
 import { savePostAction, createPostAction, autosaveArticleAction, type EditorPayload } from "@/lib/admin/actions";
 import { adminKeys } from "@/lib/admin/queries";
@@ -104,25 +105,38 @@ const editablePlaceholder = css({
 });
 
 function toWpStatus(s: Status): string {
-  return s === "Published" ? "publish" : s === "Pending" ? "pending" : s === "Private" ? "private" : "draft";
+  return s === "Published" ? "publish" : s === "Scheduled" ? "future" : s === "Pending" ? "pending" : s === "Private" ? "private" : "draft";
 }
 function fromWpStatus(s: string): Status {
-  return s === "publish" ? "Published" : s === "pending" ? "Pending" : s === "private" ? "Private" : "Draft";
+  return s === "publish" ? "Published" : s === "future" ? "Scheduled" : s === "pending" ? "Pending" : s === "private" ? "Private" : "Draft";
 }
 /** How a status reads in a sentence — nobody says an article is "Pending". */
 function statusWord(s: Status): string {
   return s === "Pending" ? "Pending review" : s;
 }
 
-/** The statuses this admin can write, with wp-admin's own descriptions.
- *  `future` (Scheduled) is deliberately absent — the footnote in the popover
- *  says why, exactly where someone hunting for "Schedule" will look. */
+/** The statuses this admin can write, in wp-admin's order and with its own
+ *  descriptions. Scheduled arrived in S57 (2026-09-16): WordPress's WP-Cron
+ *  publishes on this server again, so the editor only has to set the date —
+ *  see PostWrite.date for the one rule about when a date is sent. */
 const STATUS_OPTIONS: { value: Status; title: string; desc: string }[] = [
   { value: "Draft", title: "Draft", desc: "Not ready to publish." },
   { value: "Pending", title: "Pending review", desc: "Waiting for review before publishing." },
   { value: "Private", title: "Private", desc: "Only visible to site admins and editors." },
+  { value: "Scheduled", title: "Scheduled", desc: "Publish automatically on a chosen date." },
   { value: "Published", title: "Published", desc: "Visible to everyone." },
 ];
+
+/** The date the editor opens with: null is WordPress's "Immediately" — a draft
+ *  whose date still floats (re-stamped on every save, fixed at publish). The
+ *  test is Gutenberg's own: a draft or pending post whose `date` equals its
+ *  `modified` has never been given a date on purpose. Anything scheduled or
+ *  live carries its real date. */
+function initialDate(post: EditablePost | null | undefined): string | null {
+  if (!post || !post.date) return null;
+  const floating = (post.status === "draft" || post.status === "pending" || post.status === "auto-draft") && post.date === post.modified;
+  return floating ? null : post.date;
+}
 
 // (The title used to be seeded with dangerouslySetInnerHTML here, on the note
 // "React skips the DOM when __html is stable". MEASURED FALSE on React 19:
@@ -142,8 +156,8 @@ interface EditorSnapshot {
   body: string;
   password: string;
   sticky: boolean;
-  categories: number[];
   authorId: number;
+  categories: number[];
   template: string;
   templateTouched: boolean;
   tags: TagOption[];
@@ -163,6 +177,37 @@ const AUTOSAVE_INTERVAL_MS = 60_000;
  *  rule (2026-08-26): no closing "leave anyway?" — OK / Cancel carry the
  *  question. Only ever shown for a LIVE article; a draft saves itself. */
 const LEAVE_MSG = "អត្ថបទនេះមានការផ្លាស់ប្តូរដែលមិនទាន់បានរក្សាទុក — បើអ្នកបន្ត ការផ្លាស់ប្តូរនោះនឹងបាត់បង់";
+
+/** Close a sidebar popover on an outside mousedown or Escape — AccountMenu's
+ *  anatomy. The invisible fixed backdrop this replaced (2026-09-16) sat inside
+ *  the rail's own stacking context, so a click on the canvas or the top bar
+ *  never reached it and the popover stayed open. Listeners are subscriptions:
+ *  nothing sets state inside the effect body. `keep` are the elements a
+ *  mousedown may land on without closing — the popover itself and the row
+ *  that toggles it (closing on the row's mousedown would only have the click
+ *  re-open it). */
+function useClickAway(active: boolean, keep: RefObject<HTMLElement | null>[], onAway: () => void) {
+  // Re-subscribes on every render while open (the callers pass fresh
+  // closures) — two listeners, only while a popover is up. Cheaper than a
+  // ref that the compiler lint forbids writing during render.
+  useEffect(() => {
+    if (!active) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (keep.some((r) => r.current?.contains(t))) return;
+      onAway();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onAway();
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [active, keep, onAway]);
+}
 
 /** "Saved 3 minutes ago" — coarse on purpose: the reader wants "is it safe",
  *  not a stopwatch. */
@@ -192,14 +237,13 @@ export default function ArticleEditor({
    *  below 1.19.0 or the call failed — the control still renders, with
    *  "Default template" and whatever the post already carries. */
   templates?: PostTemplate[];
-  /** Who the Author row can assign to — the same list the Articles list's own
-   *  author filter uses. Empty hides the row rather than offer a picker with
-   *  nothing in it. */
+  /** Who the Author row can assign to — the same list the Articles list's
+   *  author filter uses (users with a published post, via the fast path).
+   *  Empty HIDES the row rather than offer a picker with nothing in it. */
   authors?: AuthorOption[];
-  /** The signed-in user, so a brand-new article's Author row reads their name
-   *  (what WordPress would assign anyway) instead of blank before the first
-   *  save. Ignored once `post` exists — its own author is the source of truth
-   *  then. */
+  /** The signed-in user, so a brand-new article's Author row reads their
+   *  name (what WordPress assigns anyway) instead of blank before the first
+   *  save. Ignored once `post` exists — its own author is the truth then. */
   currentAuthor?: AuthorOption | null;
 }) {
   const router = useRouter();
@@ -335,6 +379,14 @@ export default function ArticleEditor({
   const [pubStatus, setPubStatus] = useState<Status>(isCreate ? "Draft" : fromWpStatus(post?.status ?? "draft"));
   const [savedStatus, setSavedStatus] = useState<Status | null>(isCreate ? null : fromWpStatus(post?.status ?? "draft"));
   const [statusOpen, setStatusOpen] = useState(false);
+  const statusRowRef = useRef<HTMLDivElement>(null);
+  const statusPopRef = useRef<HTMLDivElement>(null);
+  useClickAway(statusOpen, [statusRowRef, statusPopRef], () => setStatusOpen(false));
+  /** The publish date the writer has chosen (site-local ISO) — null is
+   *  "Immediately". `savedDate` is what WordPress holds, same split as the
+   *  status above: the button commits it, autosave never writes it. */
+  const [pubDate, setPubDate] = useState<string | null>(() => initialDate(post));
+  const [savedDate, setSavedDate] = useState<string | null>(() => initialDate(post));
   // Visibility, WordPress's model: public | private (a STATUS) | password
   // protected (a FIELD). Private is therefore driven by pubStatus, not by a
   // separate flag — the two cannot both be authoritative.
@@ -345,12 +397,17 @@ export default function ArticleEditor({
    *  claims a protection that won't save. Unticking clears the field. */
   const [pwOpen, setPwOpen] = useState(() => (post?.password ?? "").trim().length > 0);
   const [sticky, setSticky] = useState(post?.sticky ?? false);
-  // Author — 0/"" until known (a new article whose profile fetch failed);
-  // buildPayload then omits `author` entirely rather than writing a bogus id,
-  // so WordPress falls back to assigning the signed-in user itself.
-  const [authorId, setAuthorId] = useState(post?.authorId ?? currentAuthor?.id ?? 0);
-  const [authorName, setAuthorName] = useState(post?.authorName ?? currentAuthor?.name ?? "");
-  const [authorDialogOpen, setAuthorDialogOpen] = useState(false);
+  /* ---- Author — wp-admin's Publish box row. 0 until known (a new article
+     whose profile read failed); buildPayload then OMITS `author` rather than
+     write a bogus id, so WordPress falls back to the signed-in user itself.
+     The name comes from the post's own embed, or — when that embed came
+     back empty (see RawEditPost._embedded.author) — from the author list. */
+  const [authorId, setAuthorId] = useState(post ? post.authorId : (currentAuthor?.id ?? 0));
+  const [authorName, setAuthorName] = useState(
+    () => (post ? post.authorName || authors.find((a) => a.id === post.authorId)?.name : currentAuthor?.name) ?? "",
+  );
+  const [authorOpen, setAuthorOpen] = useState(false);
+  const authorRowRef = useRef<HTMLDivElement>(null);
   /** A private post has no password field at all, so protection only exists in
    *  the other statuses. Derived rather than stored — two sources of truth for
    *  one WordPress concept is how the screen ends up lying about the data. */
@@ -467,11 +524,11 @@ export default function ArticleEditor({
       body: body.getHtml(),
       password,
       sticky,
+      authorId,
       categories: Object.keys(checked)
         .filter((k) => checked[Number(k)])
         .map(Number)
         .sort((a, b) => a - b),
-      authorId,
       template,
       templateTouched,
       tags,
@@ -494,7 +551,7 @@ export default function ArticleEditor({
    *  the button has not committed — autosave keeps the draft, never the
    *  intent, same as wp-admin. */
   const isEditorDirty = (): boolean =>
-    contentChanged() || (savedStatus !== null && pubStatus !== savedStatus);
+    contentChanged() || (savedStatus !== null && (pubStatus !== savedStatus || (pubStatus === "Scheduled" && pubDate !== savedDate)));
 
   /** THE RULE: autosave only where WordPress holds a draft — or nothing yet.
    *  A live article is written by the button alone; so are Pending and
@@ -696,6 +753,11 @@ export default function ArticleEditor({
    * "Make private", and Draft on an article WordPress holds as Pending/Private
    * → "Save draft" (the one case where Draft is a change to commit).
    */
+  /** The date only means anything under the Scheduled radio (owner's call,
+   *  2026-09-16: the fields show there and nowhere else). Ahead by
+   *  WordPress's own margin (a minute) the save SCHEDULES; a scheduled post
+   *  whose time has passed publishes on its next save, as in wp-admin. */
+  const dateAhead = pubStatus === "Scheduled" && pubDate !== null && isFutureSiteDate(pubDate);
   const primaryLabel =
     pubStatus === "Pending"
       ? "Submit for review"
@@ -703,26 +765,38 @@ export default function ArticleEditor({
         ? savedStatus === "Private"
           ? "Update"
           : "Make private"
-        : pubStatus === "Draft"
-          ? savedStatus === "Published"
-            ? "Switch to draft"
-            : savedStatus === "Pending" || savedStatus === "Private"
-              ? "Save draft"
-              : "Publish"
-          : savedStatus === "Published"
+        : pubStatus === "Scheduled"
+          ? savedStatus === "Scheduled"
             ? "Update"
-            : "Publish";
-  /** Pressing the primary takes the article LIVE — the pre-publish step. */
-  const primaryPublishes = primaryLabel === "Publish";
+            : dateAhead
+              ? "Schedule"
+              : "Publish"
+          : pubStatus === "Draft"
+            ? savedStatus === "Published" || savedStatus === "Scheduled"
+              ? "Switch to draft"
+              : savedStatus === "Pending" || savedStatus === "Private"
+                ? "Save draft"
+                : "Publish"
+            : savedStatus === "Published"
+              ? "Update"
+              : "Publish";
+  /** Pressing the primary takes the article LIVE, now or at its date — the
+   *  pre-publish step. */
+  const primarySchedules = primaryLabel === "Schedule";
+  const primaryPublishes = primaryLabel === "Publish" || primarySchedules;
 
   /** A selection the writer has made but not yet saved. The top bar shows it as
    *  an arrow off the pill; the panel shows it as a line under the row. */
   const statusChanged = savedStatus !== null && pubStatus !== savedStatus;
+  /** A scheduled time picked but not yet committed — same line under the row. */
+  const dateChanged = savedStatus !== null && pubStatus === "Scheduled" && pubDate !== savedDate;
 
   /** Saving would take a LIVE article off the public site — draft, pending and
    *  private all do. Nothing is destroyed, but the page and every listing it
    *  appears in go away, so it gets a confirm step rather than one click. */
   const takesOffline = savedStatus === "Published" && pubStatus !== "Published";
+  /** How the offline dialog names where the article is going. */
+  const offlineWord = statusWord(pubStatus).toLowerCase();
 
   const filteredCats = catSearch.trim()
     ? categories.filter((c) => c.name.includes(catSearch.trim()))
@@ -750,12 +824,31 @@ export default function ArticleEditor({
    *  the status: manual commits the radio; auto always writes `draft` (the
    *  server action forces it as well — see autosaveArticleAction). */
   const buildPayload = (kind: SaveKind, statusOverride?: string): EditorPayload => {
+    const wpStatus = kind === "auto" ? "draft" : statusOverride ?? toWpStatus(pubStatus);
+    const date =
+      kind !== "manual"
+        ? undefined
+        : pubStatus === "Scheduled" && pubDate !== null
+          ? pubDate
+          : (wpStatus === "publish" || wpStatus === "private") && pubDate !== null && isFutureSiteDate(pubDate, 0)
+            ? siteNowIso()
+            : undefined;
     const payload: EditorPayload = {
       // Live DOM while the element exists; the mirror once refs are detached
       // (the unmount flush) — see titleTextRef.
       title: (titleRef.current ? titleRef.current.innerText : titleTextRef.current).trim(),
       excerpt: excerpt.trim(),
-      status: kind === "auto" ? "draft" : statusOverride ?? toWpStatus(pubStatus),
+      status: wpStatus,
+      // The pre-save truth, for refreshPublic: a manual save off "Published"
+      // takes the article down and must refresh the pages that listed it.
+      wasPublic: kind === "manual" && savedStatus === "Published",
+      // The date, by the button only (never autosave — that would pin a
+      // floating draft, see PostWrite.date): under Scheduled it is the chosen
+      // moment, ahead or already passed (WordPress publishes a passed one on
+      // this save, dated as chosen). Publishing or going private with a
+      // future date still stored — a scheduled post moved to "Published" —
+      // sends NOW, or WordPress would quietly schedule it again.
+      ...(date !== undefined ? { date } : {}),
       // Only while never-published, and only when non-empty — blank means
       // "let WordPress generate one", and sending "" would ask WP to do the
       // same anyway, minus the intent being visible here.
@@ -763,7 +856,7 @@ export default function ArticleEditor({
       categories: Object.entries(checked).filter(([, v]) => v).map(([id]) => Number(id)),
       // For scoped cache revalidation on publish (see refreshPublic).
       categorySlugs: categories.filter((c) => checked[c.id]).map((c) => c.slug),
-      // Omitted (not 0) when unknown — see the authorId state comment.
+      // Omitted (not 0) while unknown — see the authorId state comment.
       ...(authorId > 0 ? { author: authorId } : {}),
       tags: tags.map((t) => t.id),
       featuredMedia: featuredId,
@@ -863,12 +956,21 @@ export default function ArticleEditor({
       // on. An autosave leaves the field alone: rewriting it under a writer
       // mid-word is exactly what makes an autosave feel haunted.
       if (res.slug) setSlug(res.slug);
+      // The date WordPress stored: the real stamp once an article is scheduled
+      // or live (a floating draft's date becomes fixed the moment it
+      // publishes); a draft keeps whatever the writer had chosen.
+      const storedDate = res.date && stored !== "Draft" && stored !== "Pending" ? res.date : pubDate;
+      setPubDate(storedDate);
+      setSavedDate(storedDate);
     }
     // The permalink WordPress computed for what it just stored — on a publish,
     // the article's final live URL. This is what lets the preview button work
     // right after publishing, without anyone reloading the editor.
     if (res.link) setWpLink(res.link);
-    if (res.status === "publish") setEverPublished(true);
+    // Live now, or — as WordPress just confirmed — live until this save (a
+    // cron publish the editor never saw): either way the article has BEEN
+    // public, which locks the slug and drives the purge below.
+    if (res.status === "publish" || res.wasPublic) setEverPublished(true);
     baselineRef.current = JSON.stringify(kind === "manual" && res.slug ? { ...snap, slug: res.slug } : snap);
     if (kind === "manual") {
       // The WP site serves this article's pages from its own cache, and our
@@ -878,7 +980,7 @@ export default function ArticleEditor({
       // private) — kick off the background purge+re-warm. `everPublished`
       // here is the pre-save value: a never-published draft skips this.
       const legacyId = id ?? res.id;
-      if (legacyId && (res.status === "publish" || everPublished)) startLegacyRefresh(legacyId);
+      if (legacyId && (res.status === "publish" || everPublished || res.wasPublic)) startLegacyRefresh(legacyId);
     }
     return true;
   };
@@ -941,7 +1043,7 @@ export default function ArticleEditor({
     // WordPress, the URL would be minted from the Khmer title as a giant
     // percent-encoded string — and a live URL is permanent here. Drafts and
     // review submissions pass freely: no URL exists yet to get wrong.
-    if ((status === "publish" || status === "private") && !slug.trim()) {
+    if ((status === "publish" || status === "private" || status === "future") && !slug.trim()) {
       promptForSlug();
       return false;
     }
@@ -967,6 +1069,12 @@ export default function ArticleEditor({
    *  (promptForSlug) and the question comes on the next press. */
   const onPrimary = () => {
     setSaveMsg(null); // a dialog reports its own failure — not the last one
+    // Scheduling a LIVE article reads "Schedule" but takes the page down
+    // until its date — that warning outranks the pre-publish question.
+    if (takesOffline) {
+      setConfirmOffline(true);
+      return;
+    }
     if (primaryPublishes) {
       if (!slug.trim()) {
         promptForSlug();
@@ -986,7 +1094,7 @@ export default function ArticleEditor({
   /** The confirmed publish — status forced to `publish` whatever the radio
    *  shows (it is on Draft for a new article; that is the point). */
   const applyPublish = async () => {
-    if (await save("publish")) setConfirmPublish(false);
+    if (await save(primarySchedules ? "future" : "publish")) setConfirmPublish(false);
   };
 
   /** The confirmed take-it-offline save. The dialog stays up while the write
@@ -1106,60 +1214,62 @@ export default function ArticleEditor({
             same popover and listed near-identical values — Private appeared in
             both — which read as two settings when it is one. The password state
             still shows here, appended, so protection is never invisible. */}
+        {/* ONE row (owner's call, 2026-09-16 — no separate Publish row): a
+            scheduled article carries its moment here, "Missed schedule" being
+            wp-admin's own words for one whose time passed without WP-Cron
+            publishing it (saving again publishes). */}
+        <div ref={statusRowRef}>
         <SummaryRow
           label="Status"
           value={
-            (pubStatus === "Pending" ? "Pending review" : pubStatus) +
-            (passwordProtected ? " · password protected" : "")
+            (pubStatus === "Pending"
+              ? "Pending review"
+              : pubStatus === "Scheduled"
+                ? (savedStatus === "Scheduled" && pubDate !== null && isPastSiteDate(pubDate) ? "Missed schedule" : "Scheduled") +
+                  (pubDate ? ` · ${formatSiteDateLong(pubDate)}` : "")
+                : pubStatus) + (passwordProtected ? " · password protected" : "")
           }
           expanded={statusOpen}
           onClick={() => setStatusOpen((v) => !v)}
         />
+        </div>
 
         {/* The panel states the intent, the top bar commits it — and they are
             most of a screen apart. This line is what connects them. */}
-        {statusChanged ? (
+        {statusChanged || dateChanged ? (
           <p className={cx(noteText, css({ margin: "2px 4px 0" }))} style={{ color: ac.muted }}>
             Not saved yet — press <strong style={{ color: ac.text, fontWeight: 600 }}>{primaryLabel}</strong> to apply it.
           </p>
         ) : null}
 
-        {/* AUTHOR — wp-admin's own "Publish" box row, right below Status &
-            visibility. Hidden (not disabled) when the authors list didn't
-            load: a picker with nothing in it is worse than no picker.
-            Opens a search-first PANEL anchored under this row (own relative
-            wrapper, same anatomy as the Status & visibility popover) rather
-            than the usual Dropdown menu — the picker is a plain scroll, and a
-            newsroom with dozens of contributors needs to type a name, not
-            hunt a list. */}
+        {/* AUTHOR — wp-admin's Publish box has this row right under Status.
+            HIDDEN (not disabled) when the author list didn't load: a picker
+            with nothing in it is worse than no picker. The value opens a
+            search-first panel under the row — the Status popover's anatomy,
+            not Dropdown's menu — because a newsroom with dozens of
+            contributors types a name rather than scrolls for it. */}
         {authors.length > 0 ? (
           <div className={css({ position: "relative" })}>
-            <div className={cx(rowBetween, css({ gap: "14px" }))} style={{ minHeight: 32 }}>
-              <span className={metaLabel} style={{ color: ac.muted, flex: "none" }}>Author</span>
-              <button
-                type="button"
-                onClick={() => setAuthorDialogOpen((v) => !v)}
-                aria-expanded={authorDialogOpen}
-                aria-haspopup="dialog"
-                className={css({ fontSize: "12.5px", fontWeight: 600, cursor: "pointer", border: "none", background: "transparent", padding: "2px 0", display: "flex", alignItems: "center", gap: "4px", maxWidth: "100%", minWidth: 0, _hover: { textDecoration: "underline" } })}
-                style={{ color: authorId > 0 ? ac.accentText : ac.muted }}
-              >
-                <span className={css({ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" })}>
-                  {authorName || "Select author"}
-                </span>
-                <Icon name="chevronDown" size={12} style={{ color: ac.muted, flex: "none" }} />
-              </button>
+            <div ref={authorRowRef}>
+            <SummaryRow
+              label="Author"
+              value={authorName || "Select author"}
+              muted={!authorName}
+              expanded={authorOpen}
+              onClick={() => setAuthorOpen((v) => !v)}
+            />
             </div>
-
-            {authorDialogOpen ? (
-              <AuthorDialog
+            {authorOpen ? (
+              <AuthorPicker
+                triggerRef={authorRowRef}
                 authors={authors}
                 selectedId={authorId}
-                onSelect={(id, name) => {
-                  setAuthorId(id);
-                  setAuthorName(name);
+                onSelect={(a) => {
+                  setAuthorId(a.id);
+                  setAuthorName(a.name);
+                  setAuthorOpen(false);
                 }}
-                onClose={() => setAuthorDialogOpen(false)}
+                onClose={() => setAuthorOpen(false)}
               />
             ) : null}
           </div>
@@ -1198,10 +1308,9 @@ export default function ArticleEditor({
 
         {statusOpen ? (
           <>
-            {/* Outside-click anatomy borrowed from Dropdown: an invisible fixed
-                backdrop, so nothing runs in an effect. */}
-            <div onClick={() => setStatusOpen(false)} className={css({ position: "fixed", inset: 0, zIndex: 25 })} />
+            {/* Outside click / Escape close it — useClickAway above. */}
             <div
+              ref={statusPopRef}
               role="dialog"
               aria-label="Status & visibility"
               className={css({ position: "absolute", top: "42px", left: "12px", right: "12px", zIndex: 30, borderRadius: "12px", padding: "12px 8px 10px" })}
@@ -1224,15 +1333,48 @@ export default function ArticleEditor({
                   the checkboxes below react to the choice, and closing on every
                   click would hide that reaction. */}
               {STATUS_OPTIONS.map((o) => (
-                <RadioRow key={o.value} title={o.title} desc={o.desc} checked={pubStatus === o.value} onSelect={() => setPubStatus(o.value)} />
+                <RadioRow
+                  key={o.value}
+                  title={o.title}
+                  desc={o.desc}
+                  checked={pubStatus === o.value}
+                  onSelect={() => {
+                    setPubStatus(o.value);
+                    // A fresh "Scheduled" starts from the current minute, as
+                    // wp-admin's picker does (owner's call, 2026-09-16); the
+                    // fields below say when that moment has passed, and the
+                    // button reads Publish rather than Schedule until it is
+                    // moved ahead. Leaving Scheduled puts the date back to what
+                    // WordPress holds, so an abandoned pick is not carried into
+                    // another status.
+                    if (o.value === "Scheduled") {
+                      if (pubDate === null) setPubDate(siteNowMinuteIso());
+                    } else {
+                      setPubDate(savedDate);
+                    }
+                  }}
+                />
               ))}
 
-              {/* NO "Scheduled". WordPress has `future`, this server cannot
-                  honour it: the site's loopback is broken, so WP-Cron never
-                  fires and a scheduled post stays scheduled forever. */}
-              <p className={cx(noteText, css({ padding: "4px 8px 2px" }))} style={{ color: ac.faint }}>
-                No &ldquo;Scheduled&rdquo; option — this server&rsquo;s cron is broken, so a scheduled post would never publish.
-              </p>
+              {/* wp-admin's Publish date, in its own fields — under the
+                  Scheduled radio only (owner's call, 2026-09-16). Site-local
+                  wall clock in and out (site-time.ts); WordPress applies the
+                  rule on save: a date ahead schedules, one that has passed
+                  publishes. */}
+              {pubStatus === "Scheduled" ? (
+                <>
+                  <div className={css({ height: "1px", marginY: "8px" })} style={{ background: ac.rowLine }} />
+                  <p className={cx(noteText, css({ padding: "0 8px 2px", fontWeight: 600 }))} style={{ color: ac.text }}>
+                    Publish
+                  </p>
+                  <DateFields value={pubDate ?? siteNowMinuteIso()} onChange={setPubDate} />
+                  {pubDate !== null && !dateAhead ? (
+                    <p className={cx(noteText, css({ padding: "2px 8px 4px" }))} style={{ color: ac.warn }}>
+                      This time has already passed — saving publishes the article straight away.
+                    </p>
+                  ) : null}
+                </>
+              ) : null}
 
               <div className={css({ height: "1px", marginY: "8px" })} style={{ background: ac.rowLine }} />
 
@@ -1464,7 +1606,13 @@ export default function ArticleEditor({
           overlays, not in the sidebar that set the status. */}
       {confirmOffline ? (
         <ConfirmDialog
-          title={pubStatus === "Private" ? "Make this live article private?" : "Take this article off the site?"}
+          title={
+            pubStatus === "Private"
+              ? "Make this live article private?"
+              : pubStatus === "Scheduled"
+                ? "Reschedule this live article?"
+                : "Take this article off the site?"
+          }
           confirmLabel={primaryLabel}
           busyLabel="Saving…"
           busy={saving}
@@ -1473,9 +1621,15 @@ export default function ArticleEditor({
           onCancel={() => setConfirmOffline(false)}
         >
           This article is published. Saving it as{" "}
-          <strong style={{ color: ac.text, fontWeight: 600 }}>{statusWord(pubStatus).toLowerCase()}</strong> takes the
-          public page down and drops it out of every listing it appears in. Nothing is deleted &mdash; publishing it
-          again restores it at the same URL.
+          <strong style={{ color: ac.text, fontWeight: 600 }}>{offlineWord}</strong> takes the public page down and drops
+          it out of every listing it appears in
+          {pubStatus === "Scheduled" && pubDate ? (
+            <>
+              {" "}
+              until <strong style={{ color: ac.text, fontWeight: 600 }}>{formatSiteDateLong(pubDate)}</strong>
+            </>
+          ) : null}
+          . Nothing is deleted &mdash; publishing it again restores it at the same URL.
         </ConfirmDialog>
       ) : null}
 
@@ -1485,15 +1639,24 @@ export default function ArticleEditor({
           nothing left to fill in here. */}
       {confirmPublish ? (
         <ConfirmDialog
-          title="Ready to publish?"
-          confirmLabel="Publish"
-          busyLabel="Publishing…"
+          title={primarySchedules ? "Ready to schedule?" : "Ready to publish?"}
+          confirmLabel={primarySchedules ? "Schedule" : "Publish"}
+          busyLabel={primarySchedules ? "Scheduling…" : "Publishing…"}
           tone="default"
           busy={saving}
           error={saveMsg?.kind === "err" ? saveMsg.text : null}
           onConfirm={() => void applyPublish()}
           onCancel={() => setConfirmPublish(false)}
-        />
+        >
+          {/* Scheduling has one fact worth confirming — the moment. The bare
+              publish question stays bare (owner's call, 2026-08-27). */}
+          {primarySchedules && pubDate ? (
+            <>
+              It goes live on <strong style={{ color: ac.text, fontWeight: 600 }}>{formatSiteDateLong(pubDate)}</strong>{" "}
+              (Phnom Penh time). WordPress publishes it on its own; you can close the editor.
+            </>
+          ) : null}
+        </ConfirmDialog>
       ) : null}
 
       {pickerOpen ? (
@@ -1916,59 +2079,82 @@ function CatBlock({ children }: { children: ReactNode }) {
   );
 }
 
-// --- author dialog -----------------------------------------------------------
+// --- author picker ---------------------------------------------------------
+
+const authorOptionRow = css({
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "10px",
+  width: "100%",
+  padding: "7px 10px",
+  borderRadius: "8px",
+  border: "none",
+  background: "transparent",
+  fontFamily: "inherit",
+  fontSize: "12.5px",
+  lineHeight: 1.5,
+  textAlign: "left",
+  cursor: "pointer",
+  _hover: { background: ac.surfaceHover },
+  _focusVisible: { outline: "2px solid var(--colors-admin-focus)", outlineOffset: "-2px" },
+});
 
 /** Every possible author, one search box, one click to reassign. Anchored
- *  under the Author row it belongs to — same anatomy as the Status &
- *  visibility popover (invisible fixed backdrop for outside-click, no
- *  stopPropagation needed since the panel paints over it) — rather than
- *  CategoriesDialog's centered overlay, which read as a whole-screen
- *  interruption for what is a one-click, single-select pick. */
-function AuthorDialog({
+ *  under the Author row it belongs to — the Status & visibility popover's
+ *  anatomy (an invisible fixed backdrop takes the outside click, the panel
+ *  paints over it, nothing runs in an effect) rather than CategoriesDialog's
+ *  centred overlay: this is a one-click, single-select pick, not a
+ *  whole-screen interruption. The rail is not `overflow: hidden`, which is
+ *  what lets an absolute panel work here where the list screens need
+ *  Dropdown's portal. */
+function AuthorPicker({
   authors,
   selectedId,
   onSelect,
   onClose,
+  triggerRef,
 }: {
   authors: AuthorOption[];
   selectedId: number;
-  onSelect: (id: number, name: string) => void;
+  onSelect: (a: AuthorOption) => void;
   onClose: () => void;
+  /** The row that opens the picker — a mousedown there must not close it. */
+  triggerRef: RefObject<HTMLElement | null>;
 }) {
   const [q, setQ] = useState("");
   const query = q.trim().toLowerCase();
   const filtered = query ? authors.filter((a) => a.name.toLowerCase().includes(query)) : authors;
+  const panelRef = useRef<HTMLDivElement>(null);
+  useClickAway(true, [panelRef, triggerRef], onClose);
 
   return (
     <>
-      <div onClick={onClose} className={css({ position: "fixed", inset: 0, zIndex: 25 })} />
       <div
+        ref={panelRef}
         role="dialog"
-        aria-label="Select author"
-        className={css({ position: "absolute", top: "100%", right: 0, marginTop: "6px", zIndex: 30, width: "300px", height: "250px", display: "flex", flexDirection: "column", borderRadius: "12px", overflow: "hidden" })}
+        aria-label="Author"
+        className={css({ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 30, marginTop: "4px", height: "260px", display: "flex", flexDirection: "column", borderRadius: "12px", overflow: "hidden" })}
         style={{ background: ac.surface, border: `1px solid ${ac.border}`, boxShadow: ac.shadowMd }}
       >
-        <div className={css({ display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px", flex: "none" })} style={{ borderBottom: `1px solid ${ac.border}` }}>
-          <div className={css({ position: "relative", flex: 1 })}>
-            <Icon name="search" size={13} style={{ position: "absolute", left: 12, top: 11, color: ac.faint, pointerEvents: "none" }} />
-            <Input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search authors…" style={{ paddingLeft: 34 }} />
-          </div>
+        <div className={css({ display: "flex", alignItems: "center", gap: "6px", padding: "8px 8px 8px 10px", flex: "none" })} style={{ borderBottom: `1px solid ${ac.rowLine}` }}>
+          <SearchInput placeholder="Search authors…" value={q} onValueChange={setQ} autoFocus />
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className={css({ width: "26px", height: "26px", borderRadius: "7px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", border: "none", background: "transparent", flex: "none", _hover: { background: ac.surfaceHover } })}
+            className={css({ width: "24px", height: "24px", borderRadius: "6px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", border: "none", background: "transparent", flex: "none", _hover: { background: ac.surfaceHover } })}
             style={{ color: ac.muted }}
           >
-            <Icon name="x" size={13} strokeWidth={2.2} />
+            <Icon name="x" size={12} strokeWidth={2.2} />
           </button>
         </div>
 
-        <div className={css({ flex: 1, minHeight: 0, overflowY: "auto", padding: "6px" })}>
+        <div role="listbox" aria-label="Authors" className={css({ flex: 1, minHeight: 0, overflowY: "auto", padding: "6px" })}>
           {filtered.length === 0 ? (
-            <div className={css({ fontSize: "13px", padding: "24px 0", textAlign: "center" })} style={{ color: ac.muted }}>
+            <p className={css({ fontSize: "12.5px", padding: "20px 8px", textAlign: "center" })} style={{ color: ac.muted }}>
               No authors match &ldquo;{q}&rdquo;.
-            </div>
+            </p>
           ) : (
             filtered.map((a) => {
               const selected = a.id === selectedId;
@@ -1978,12 +2164,9 @@ function AuthorDialog({
                   type="button"
                   role="option"
                   aria-selected={selected}
-                  onClick={() => {
-                    onSelect(a.id, a.name);
-                    onClose();
-                  }}
-                  className={css({ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", width: "100%", textAlign: "left", padding: "8px 10px", borderRadius: "8px", cursor: "pointer", fontSize: "13px", border: "none", background: "transparent", fontFamily: "inherit", _hover: { background: ac.surfaceHover } })}
-                  style={{ color: selected ? ac.text : ac.sub }}
+                  onClick={() => onSelect(a)}
+                  className={authorOptionRow}
+                  style={{ color: selected ? ac.text : ac.sub, fontWeight: selected ? 600 : 500 }}
                 >
                   <span className={css({ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" })}>{a.name}</span>
                   {selected ? <Icon name="check" size={13} strokeWidth={2.4} style={{ color: ac.accentText, flex: "none" }} /> : null}
@@ -2002,17 +2185,31 @@ function AuthorDialog({
 /** The Publish block's summary row: label left, the current value right as a
  *  link-style button that opens the Status & visibility popover — wp-admin's
  *  anatomy. */
-function SummaryRow({ label, value, expanded, onClick }: { label: string; value: string; expanded: boolean; onClick: () => void }) {
+function SummaryRow({
+  label,
+  value,
+  expanded,
+  onClick,
+  muted = false,
+}: {
+  label: string;
+  value: string;
+  expanded: boolean;
+  onClick: () => void;
+  /** The value is a PLACEHOLDER ("Select author"), not a setting — shown in
+   *  the label's grey so it never reads as a value that was chosen. */
+  muted?: boolean;
+}) {
   return (
-    <div className={rowBetween} style={{ minHeight: 32 }}>
-      <span className={metaLabel} style={{ color: ac.muted }}>{label}</span>
+    <div className={cx(rowBetween, css({ gap: "14px" }))} style={{ minHeight: 32 }}>
+      <span className={metaLabel} style={{ color: ac.muted, flex: "none" }}>{label}</span>
       <button
         type="button"
         onClick={onClick}
         aria-expanded={expanded}
         aria-haspopup="dialog"
-        className={css({ fontSize: "12.5px", fontWeight: 600, cursor: "pointer", border: "none", background: "transparent", padding: "2px 0", _hover: { textDecoration: "underline" } })}
-        style={{ color: ac.accentText }}
+        className={css({ fontSize: "12.5px", fontWeight: 600, cursor: "pointer", border: "none", background: "transparent", padding: "2px 0", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", _hover: { textDecoration: "underline" } })}
+        style={{ color: muted ? ac.muted : ac.accentText }}
       >
         {value}
       </button>
@@ -2036,6 +2233,121 @@ function RowText({ title, desc }: { title: string; desc: string }) {
 /** A radio option in the Status & visibility popover. A real
  *  <input type="radio">, for the same reason Checkbox is a real checkbox —
  *  keyboard and group semantics come free. */
+/** The month picker stays a native <select> (design system §5) on Input's
+ *  geometry — the same rule the form screens follow. */
+const monthSelectClass = css({
+  flex: "1",
+  minWidth: 0,
+  height: "36px",
+  padding: "0 8px",
+  borderRadius: "9px",
+  fontSize: "13px",
+  fontFamily: "inherit",
+  cursor: "pointer",
+  color: "var(--colors-admin-text)",
+  background: "var(--colors-admin-surface-sunken)",
+  border: "1px solid var(--colors-admin-border)",
+  transition: "border-color .13s ease",
+  _hover: { borderColor: "var(--colors-admin-border-strong)" },
+  _focusVisible: { outline: "2px solid var(--colors-admin-focus)", outlineOffset: "2px" },
+});
+
+/** One numeric field of the date picker. It types freely and commits only a
+ *  value inside [min, max], so a half-typed "2" on the way to "26" never yanks
+ *  the date around; the text re-syncs whenever the committed value changes
+ *  from outside (AM/PM flips the hour, a shorter month clamps the day) and on
+ *  blur, so a value that never became valid is simply put back. */
+function NumField({
+  label,
+  value,
+  min,
+  max,
+  width,
+  padTo = 0,
+  onCommit,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  width: number;
+  padTo?: number;
+  onCommit: (n: number) => void;
+}) {
+  const show = (n: number) => String(n).padStart(padTo, "0");
+  const [text, setText] = useState(show(value));
+  // Derived-state reset during render (React's own pattern), not an effect.
+  const [seen, setSeen] = useState(value);
+  if (seen !== value) {
+    setSeen(value);
+    setText(show(value));
+  }
+  return (
+    <Input
+      aria-label={label}
+      inputMode="numeric"
+      value={text}
+      onChange={(e) => {
+        const t = e.target.value.replace(/\D/g, "").slice(0, 4);
+        setText(t);
+        const n = Number(t);
+        if (t !== "" && n >= min && n <= max) onCommit(n);
+      }}
+      onBlur={() => setText(show(value))}
+      className={css({ textAlign: "center", padding: "0 6px", flex: "none" })}
+      style={{ width }}
+    />
+  );
+}
+
+/** wp-admin's Publish date fields: hour · minute · AM/PM, then day · month ·
+ *  year. Edits the site-local ISO in place, always through clampSiteDate so
+ *  the string can never describe a date that does not exist. */
+function DateFields({ value, onChange }: { value: string; onChange: (iso: string) => void }) {
+  const p: SiteDateParts = parseSiteDate(value) ?? parseSiteDate(siteNowIso())!;
+  const commit = (patch: Partial<SiteDateParts>) => onChange(formatSiteIso(clampSiteDate({ ...p, ...patch, second: 0 })));
+  const pm = p.hour >= 12;
+  const h12 = p.hour % 12 === 0 ? 12 : p.hour % 12;
+  const to24 = (h: number, isPm: boolean) => (h % 12) + (isPm ? 12 : 0);
+  const rowClass = css({ display: "flex", alignItems: "center", gap: "6px" });
+  return (
+    <div className={css({ padding: "4px 8px 4px" })}>
+      <p className={cx(metaLabel, css({ margin: "0 0 6px" }))} style={{ color: ac.muted }}>
+        Time
+      </p>
+      <div className={rowClass}>
+        <NumField label="Hour" value={h12} min={1} max={12} width={48} onCommit={(h) => commit({ hour: to24(h, pm) })} />
+        <span style={{ color: ac.muted }}>:</span>
+        <NumField label="Minute" value={p.minute} min={0} max={59} width={48} padTo={2} onCommit={(m) => commit({ minute: m })} />
+        <Segmented
+          size="sm"
+          ariaLabel="AM or PM"
+          value={pm ? "PM" : "AM"}
+          options={[
+            { value: "AM", label: "AM" },
+            { value: "PM", label: "PM" },
+          ]}
+          onChange={(v) => commit({ hour: to24(h12, v === "PM") })}
+        />
+      </div>
+      <p className={cx(metaLabel, css({ margin: "10px 0 6px" }))} style={{ color: ac.muted }}>
+        Date
+      </p>
+      <div className={rowClass}>
+        <NumField label="Day" value={p.day} min={1} max={31} width={48} onCommit={(d) => commit({ day: d })} />
+        <select aria-label="Month" className={monthSelectClass} value={p.month} onChange={(e) => commit({ month: Number(e.target.value) })}>
+          {MONTHS_LONG.map((m, i) => (
+            <option key={m} value={i + 1}>
+              {m}
+            </option>
+          ))}
+        </select>
+        <NumField label="Year" value={p.year} min={2000} max={2100} width={64} onCommit={(y) => commit({ year: y })} />
+      </div>
+    </div>
+  );
+}
+
 function RadioRow({ title, desc, checked, onSelect }: { title: string; desc: string; checked: boolean; onSelect: () => void }) {
   return (
     <label className={cx(optionRow, optionRowHover)}>

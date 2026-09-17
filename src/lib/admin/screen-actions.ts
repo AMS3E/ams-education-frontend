@@ -9,6 +9,7 @@
 import { redirect } from "next/navigation";
 import { revalidateTag } from "next/cache";
 import { adminFetch, AdminAuthError, AdminApiError } from "./client";
+import { safeTag } from "@/lib/api/client";
 import { updateSettings, updateProfile, readProfile, type SettingsWrite, type ProfileWrite } from "./settings";
 import { createUser, type NewUser } from "./users";
 import { updateMediaAlt, deleteMediaItem } from "./media";
@@ -230,10 +231,20 @@ export async function deleteMedia(id: number): Promise<ActionResult> {
 
 /* --- post trash --- */
 
-export async function trashPost(id: number): Promise<ActionResult> {
+/** `liveSlug`: the slug of a PUBLISHED post being trashed. Its own page, the
+ *  homepage and the day tabs listed it, so they are refreshed along with the
+ *  article lists (2026-09-16 — before, only "articles" was, and the trashed
+ *  article kept its public page until the cache window lapsed). Categories
+ *  are not known here; their lists re-read within their own window. */
+export async function trashPost(id: number, liveSlug?: string): Promise<ActionResult> {
   try {
     await adminFetch(`/wp/v2/posts/${id}`, { method: "DELETE" }); // to trash (not force)
     revalidateTag("articles", "max"); // public lists (a published post may have vanished)
+    if (liveSlug) {
+      revalidateTag("home", "max");
+      revalidateTag("daily-events", "max");
+      revalidateTag(safeTag(`article:${liveSlug}`), "max");
+    }
     return { ok: true };
   } catch (e) {
     return fail(e, "Couldn't move the post to trash.");

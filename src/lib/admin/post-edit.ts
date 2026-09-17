@@ -21,6 +21,7 @@ interface RawEditPost {
   link?: string;
   /** "2026-07-30T10:42:02" — site-local, no zone. */
   date?: string;
+  modified?: string;
   title: { raw?: string; rendered?: string };
   content: { raw?: string; rendered?: string };
   excerpt: { raw?: string; rendered?: string };
@@ -97,6 +98,11 @@ export interface EditablePost {
   /** Publish date, site-local ISO ("" for an undated draft) — the SEO
    *  workbench's Google preview shows it the way Google would. */
   date: string;
+  /** Last-edited stamp, site-local ISO like `date`. The editor needs the pair:
+   *  a draft whose date EQUALS its modified stamp has WordPress's "floating"
+   *  date (it re-stamps every save and fixes the real moment at publish) —
+   *  Gutenberg's own test for showing "Immediately" instead of a date. */
+  modified: string;
   /** Rendered HTML — do_blocks() output. Kept for previews and for the legacy
    *  TipTap editor; NOT what the Gutenberg canvas loads. */
   bodyHtml: string;
@@ -138,6 +144,13 @@ export interface PostWrite {
   content?: string;
   excerpt?: string;
   status?: string;
+  /** Publish date as WordPress's own site-local shape ("2026-09-16T13:00:00",
+   *  Asia/Phnom_Penh, no zone). OMITTED unless the writer picked one: sending
+   *  a draft's stale date back would pin it, and the article would then go
+   *  live backdated instead of stamped with the real moment. WordPress applies
+   *  its rules on save — a date ahead schedules, a date that has passed
+   *  publishes (see src/lib/admin/site-time.ts). */
+  date?: string;
   slug?: string;
   categories?: number[];
   tags?: number[];
@@ -177,6 +190,7 @@ export async function getPostForEdit(id: number): Promise<EditablePost | null> {
     id: data.id,
     title: decodeEntities(data.title?.raw ?? "").trim(),
     date: data.date ?? "",
+    modified: data.modified ?? "",
     bodyHtml: data.content?.rendered ?? "",
     bodyRaw: data.content?.raw ?? "",
     excerpt: decodeEntities(data.excerpt?.raw ?? "").trim(),
@@ -211,6 +225,24 @@ export interface SavedPost {
   slug: string;
   link?: string;
   categories?: number[];
+  /** The publish date WordPress stored, site-local — fixed once an article is
+   *  scheduled or live, so the editor can show the real stamp after a save. */
+  date?: string;
+}
+
+/** The status WordPress holds for a post RIGHT NOW — the truth the editor's
+ *  own copy can lag behind: WP-Cron publishes a scheduled article without
+ *  telling an open editor, and someone may publish in wp-admin. "" when the
+ *  read fails (the caller then trusts what it has). */
+export async function readPostStatus(id: number): Promise<string> {
+  try {
+    const { data } = await adminFetch<{ status?: string }>(`/wp/v2/posts/${id}`, {
+      query: { context: "edit", _fields: "status" },
+    });
+    return typeof data?.status === "string" ? data.status : "";
+  } catch {
+    return "";
+  }
 }
 
 const CATEGORY_PERMALINK_HEADER = { "X-AMS-Category-Permalink": "1" };

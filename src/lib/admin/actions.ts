@@ -6,7 +6,7 @@
 
 import { redirect } from "next/navigation";
 import { revalidateTag } from "next/cache";
-import { updatePost, createPost, type PostWrite } from "./post-edit";
+import { updatePost, createPost, readPostStatus, type PostWrite } from "./post-edit";
 import { AdminAuthError, AdminApiError } from "./client";
 import { safeTag } from "@/lib/api/client";
 
@@ -18,7 +18,17 @@ export interface EditorPayload {
    *  Gutenberg body is not flattened by a metadata-only save. */
   content?: string;
   excerpt: string;
-  status: string; // "draft" | "pending" | "publish"
+  status: string; // "draft" | "pending" | "publish" | "private" | "future"
+  /** Publish date, site-local ISO — only when the writer chose one (see
+   *  PostWrite.date). Manual saves only: autosave strips it like status. */
+  date?: string;
+  /** The article was PUBLISHED before this save (the editor's saved status).
+   *  Not sent to WordPress — it tells refreshPublic that a save which ends in
+   *  draft, pending, private or scheduled has just taken a live article DOWN,
+   *  which must refresh the same public pages a publish refreshes. Without it
+   *  (2026-09-16) the withdrawn article stayed on the homepage, its category
+   *  pages and its own URL until each cache window lapsed. */
+  wasPublic?: boolean;
   /** The URL slug, hand-written in English (site convention — WordPress would
    *  percent-encode the Khmer title). OMITTED when locked (the article has
    *  been published; a live URL is never rewritten) or left blank (WordPress
@@ -61,6 +71,12 @@ export interface SaveResult {
   /** Present on success — the saved status/slug echoed back from WordPress. */
   status?: string;
   slug?: string;
+  /** The publish date WordPress stored, site-local (see SavedPost.date). */
+  date?: string;
+  /** The article WAS live before this save — as verified against WordPress
+   *  (see savePostAction), not just as the editor believed. The editor uses
+   *  it to run the WordPress-cache purge and to lock the slug. */
+  wasPublic?: boolean;
   /** The permalink WordPress computed for the saved state — on a publish, the
    *  article's live URL. Feeds the editor's preview control. */
   link?: string;
@@ -77,6 +93,7 @@ function toWrite(p: EditorPayload): PostWrite {
     ...(p.slug !== undefined ? { slug: p.slug } : {}),
     excerpt: p.excerpt,
     status: p.status,
+    ...(p.date !== undefined ? { date: p.date } : {}),
     categories: p.categories,
     ...(p.author !== undefined ? { author: p.author } : {}),
     tags: p.tags,
@@ -96,9 +113,12 @@ function toWrite(p: EditorPayload): PostWrite {
  *  the post appears on — its own page, its categories' lists, the homepage and
  *  the day tabs — instead of the blanket "articles" tag (every list page at
  *  once), to stay friendly to the Vercel ISR-writes budget. Mirrors the tag
- *  set the WP plugin's publish webhook (≥1.7.3) sends for a post. */
-function refreshPublic(status: string | undefined, slug: string | undefined, categorySlugs: string[]) {
-  if (status !== "publish") return;
+ *  set the WP plugin's publish webhook (≥1.7.3) sends for a post.
+ *
+ *  Also after a save that takes a live article DOWN (`wasPublic`): the pages
+ *  that listed it must drop it just as promptly as they picked it up. */
+function refreshPublic(status: string | undefined, slug: string | undefined, categorySlugs: string[], wasPublic = false) {
+  if (status !== "publish" && !wasPublic) return;
   revalidateTag("home", "max");
   revalidateTag("daily-events", "max");
   if (slug) revalidateTag(safeTag(`article:${slug}`), "max");
@@ -107,9 +127,20 @@ function refreshPublic(status: string | undefined, slug: string | undefined, cat
 
 export async function savePostAction(id: number, payload: EditorPayload): Promise<SaveResult> {
   try {
+    /* Was the article live until this save? The editor's answer can be STALE:
+     * WP-Cron publishes a scheduled article without telling an open editor,
+     * so a reschedule from that editor looked like scheduled→scheduled and
+     * skipped every purge — the old copy stayed on the WordPress site until
+     * the TTL (owner, 2026-09-16). So when the editor does not already know
+     * it was live and the save is not a publish, ask WordPress. One quick
+     * read, only on those saves. */
+    let wasPublic = payload.wasPublic === true;
+    if (!wasPublic && payload.status !== "publish") {
+      wasPublic = (await readPostStatus(id)) === "publish";
+    }
     const saved = await updatePost(id, toWrite(payload), true);
-    refreshPublic(saved.status, saved.slug, payload.categorySlugs);
-    return { ok: true, status: saved.status, slug: saved.slug, link: saved.link, categories: saved.categories };
+    refreshPublic(saved.status, saved.slug, payload.categorySlugs, wasPublic);
+    return { ok: true, status: saved.status, slug: saved.slug, link: saved.link, categories: saved.categories, date: saved.date, wasPublic };
   } catch (e) {
     if (e instanceof AdminAuthError) redirect("/login");
     return { ok: false, error: e instanceof AdminApiError ? "WordPress rejected the save. Check your permissions and try again." : "Couldn't save. Please try again." };
@@ -134,7 +165,10 @@ export async function savePostAction(id: number, payload: EditorPayload): Promis
  */
 export async function autosaveArticleAction(id: number | null, payload: EditorPayload): Promise<SaveResult> {
   try {
-    const write = { ...toWrite(payload), status: "draft" };
+    // Status AND date are the button's to commit: a date written here would
+    // pin a floating draft (see PostWrite.date) a minute after it was picked.
+    const write: PostWrite = { ...toWrite(payload), status: "draft" };
+    delete write.date;
     const saved = id === null ? await createPost(write) : await updatePost(id, write);
     return { ok: true, id: saved.id, status: saved.status, slug: saved.slug, link: saved.link, categories: saved.categories };
   } catch (e) {
@@ -147,7 +181,7 @@ export async function createPostAction(payload: EditorPayload): Promise<SaveResu
   try {
     const saved = await createPost(toWrite(payload), true);
     refreshPublic(saved.status, saved.slug, payload.categorySlugs);
-    return { ok: true, id: saved.id, status: saved.status, slug: saved.slug, link: saved.link, categories: saved.categories };
+    return { ok: true, id: saved.id, status: saved.status, slug: saved.slug, link: saved.link, categories: saved.categories, date: saved.date };
   } catch (e) {
     if (e instanceof AdminAuthError) redirect("/login");
     return { ok: false, error: e instanceof AdminApiError ? "WordPress rejected the new article. Check your permissions and try again." : "Couldn't create the article. Please try again." };
