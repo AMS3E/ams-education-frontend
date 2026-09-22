@@ -22,7 +22,7 @@ import { Bar, SkeletonKeyframes } from "../Skeleton";
 import RefreshButton from "../RefreshButton";
 import type { MediaItem, MediaListResult } from "@/lib/admin/media";
 import { saveMediaAlt, deleteMedia } from "@/lib/admin/screen-actions";
-import { uploadImageFile } from "../upload-client";
+import { conversionSource, convertedNote, uploadImageFile } from "../upload-client";
 
 const TYPE_OPTS: Option[] = [
   { label: "All types", value: "" },
@@ -70,17 +70,25 @@ export default function MediaView({
   // and the sentinel is gone with it.
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [uploading, setUploading] = useState(false);
+  // Source format while an image is being re-encoded to WebP ("JPEG"), so
+  // the button says what the wait is for; null for a plain upload.
+  const [converting, setConverting] = useState<string | null>(null);
   const [uploadErr, setUploadErr] = useState<string | null>(null);
+  const [uploadNote, setUploadNote] = useState<string | null>(null);
 
   const upload = async (file: File) => {
     setUploading(true);
+    setConverting(conversionSource(file));
     setUploadErr(null);
+    setUploadNote(null);
     const res = await uploadImageFile(file); // never throws
     setUploading(false);
+    setConverting(null);
     if (!res.ok) {
       setUploadErr(res.error ?? "Upload failed.");
       return;
     }
+    setUploadNote(convertedNote(res));
     if (res.id) setSelectedId(res.id);
     onMutated(); // invalidate the client media cache (the route busted the server tag)
   };
@@ -123,7 +131,7 @@ export default function MediaView({
                   button's classes rather than the component. */}
               <label className={buttonClass("primary")} style={{ opacity: uploading ? 0.7 : 1 }}>
                 <Icon name="upload" size={14} strokeWidth={2} />
-                {uploading ? "Uploading…" : "Upload"}
+                {uploading ? (converting ? `Converting ${converting} to WebP…` : "Uploading…") : "Upload"}
                 <input
                   type="file"
                   accept="image/*,video/*,audio/*"
@@ -159,6 +167,10 @@ export default function MediaView({
           {uploadErr ? (
             <span role="alert" className={css({ fontSize: "12.5px" })} style={{ color: ac.danger }}>
               {uploadErr}
+            </span>
+          ) : uploadNote ? (
+            <span role="status" className={css({ fontSize: "12.5px" })} style={{ color: ac.good }}>
+              {uploadNote}
             </span>
           ) : null}
         </div>

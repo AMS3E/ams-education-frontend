@@ -7,7 +7,7 @@ import { ac } from "./tokens";
 import { ADMIN_FONT_STACK, adminFont } from "./font";
 import { Icon } from "./icons";
 import { browseMedia } from "@/lib/admin/editor-actions";
-import { uploadImageFile } from "./upload-client";
+import { conversionSource, uploadImageFile } from "./upload-client";
 import type { MediaItem, MediaListResult } from "@/lib/admin/media";
 
 // Modal media picker shared by the article editor (featured image) and the
@@ -63,6 +63,9 @@ export default function MediaPicker({
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [uploading, setUploading] = useState(false);
+  // Source format while an image is being re-encoded to WebP ("JPEG"). The
+  // picker closes on success, so the in-progress label is its only indicator.
+  const [converting, setConverting] = useState<string | null>(null);
   const [uploadErr, setUploadErr] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   // Multi-select keeps the picked ITEMS, not ids: the caller needs urls, and a
@@ -112,9 +115,11 @@ export default function MediaPicker({
 
   const upload = async (file: File) => {
     setUploading(true);
+    setConverting(conversionSource(file));
     setUploadErr(null);
     const res = await uploadImageFile(file); // never throws
     setUploading(false);
+    setConverting(null);
     if (!res.ok || !res.id) {
       setUploadErr(res.error ?? "Upload failed.");
       return;
@@ -219,7 +224,7 @@ export default function MediaPicker({
             style={{ background: ac.accent, opacity: uploading ? 0.7 : 1 }}
           >
             <Icon name="upload" size={13} strokeWidth={2} />
-            {uploading ? "Uploading…" : "Upload"}
+            {uploading ? (converting ? `Converting ${converting} to WebP…` : "Uploading…") : "Upload"}
             <input
               ref={fileRef}
               type="file"

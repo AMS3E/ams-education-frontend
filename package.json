@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "panda codegen && next dev --experimental-https",
+    "dev": "panda codegen && next dev",
     "build": "panda codegen && next build",
     "start": "next start",
     "prepare": "panda codegen",
@@ -28,7 +28,8 @@
     "embla-carousel-react": "^8.6.0",
     "next": "16.2.9",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "sharp": "^0.34.5"
   },
   "devDependencies": {
     "@pandacss/dev": "^1.11.4",

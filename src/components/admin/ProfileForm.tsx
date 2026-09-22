@@ -8,7 +8,7 @@ import { MY_CHIP_QUERY_KEY, type ChipData } from "./AccountMenu";
 import { PageHeader, FormCard, FormGrid, Field, Input, Textarea, Badge, Button, SaveBar, type SaveMessage } from "./ui";
 import type { Profile, ProfileAvatar } from "@/lib/admin/settings";
 import { saveProfile, setMyAvatar } from "@/lib/admin/screen-actions";
-import { uploadImageFile } from "./upload-client";
+import { conversionSource, convertedNote, uploadImageFile } from "./upload-client";
 
 export default function ProfileForm({ profile }: { profile: Profile }) {
   const [name, setName] = useState(profile.name);
@@ -32,12 +32,14 @@ export default function ProfileForm({ profile }: { profile: Profile }) {
   // pending state to explain.
   const [avatar, setAvatar] = useState<ProfileAvatar | null>(profile.avatar);
   const [avatarBusy, setAvatarBusy] = useState(false);
+  // Source format while the picture is being re-encoded to WebP ("JPEG").
+  const [converting, setConverting] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
 
   /** Point the account at `next` (null clears). Reports through the form's
    *  message strip; the preview only changes once WordPress has agreed. */
-  const applyAvatar = async (next: ProfileAvatar | null) => {
+  const applyAvatar = async (next: ProfileAvatar | null, note?: string | null) => {
     const res = await setMyAvatar(next?.id ?? 0);
     if (!res.ok) {
       setMsg({ kind: "err", text: res.error ?? "Couldn't update the picture." });
@@ -48,19 +50,21 @@ export default function ProfileForm({ profile }: { profile: Profile }) {
     // thumbnail — the plugin stores its own resolved rendition, so the next
     // hard load may swap in an equivalent URL; visually identical.
     queryClient.setQueryData<ChipData>(MY_CHIP_QUERY_KEY, (prev) => ({ roleLabel: prev?.roleLabel ?? null, url: next?.url ?? null }));
-    setMsg({ kind: "ok", text: next ? "Picture updated" : "Picture removed" });
+    setMsg({ kind: "ok", text: next ? (note ? `Picture updated · ${note}` : "Picture updated") : "Picture removed" });
   };
 
   const pickAvatar = async (file: File) => {
     setAvatarBusy(true);
+    setConverting(conversionSource(file));
     setMsg(null);
     const res = await uploadImageFile(file); // never throws
+    setConverting(null);
     if (!res.ok || !res.id) {
       setAvatarBusy(false);
       setMsg({ kind: "err", text: res.error ?? "Couldn't upload the picture." });
       return;
     }
-    await applyAvatar({ id: res.id, url: res.thumb || res.url || "" });
+    await applyAvatar({ id: res.id, url: res.thumb || res.url || "" }, convertedNote(res));
     setAvatarBusy(false);
   };
 
@@ -126,7 +130,7 @@ export default function ProfileForm({ profile }: { profile: Profile }) {
               <div className={css({ display: "flex", flexDirection: "column", gap: "8px", minWidth: 0 })}>
                 <div className={css({ display: "flex", gap: "8px", flexWrap: "wrap" })}>
                   <Button size="sm" disabled={avatarBusy || busy} onClick={() => fileRef.current?.click()}>
-                    {avatarBusy ? "Updating…" : avatar ? "Change picture" : "Upload picture"}
+                    {avatarBusy ? (converting ? `Converting ${converting} to WebP…` : "Updating…") : avatar ? "Change picture" : "Upload picture"}
                   </Button>
                   {avatar ? (
                     <Button
