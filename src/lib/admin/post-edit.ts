@@ -8,7 +8,7 @@
 // flattens the blocks, so callers only include `content` when the user actually
 // edited the body (dirty-tracking lives in BodyEditor/ArticleEditor).
 
-import { adminFetch } from "./client";
+import { adminFetch, AdminApiError } from "./client";
 import { decodeEntities } from "@/lib/api/mappers";
 
 interface RawEditPost {
@@ -177,7 +177,11 @@ export async function getPostForEdit(id: number): Promise<EditablePost | null> {
   const { data } = await adminFetch<RawEditPost>(`/wp/v2/posts/${id}`, {
     query: {
       context: "edit",
-      _fields: "id,date,slug,status,link,title,content,excerpt,author,categories,tags,featured_media,template,password,sticky,meta,_links,_embedded",
+      // `modified` rides along since the S59 port: EditablePost.modified (S57)
+      // was mapped but never REQUESTED, so it always came back "" and the
+      // floating-date test in the editor's initialDate never matched — every
+      // draft opened with its last-save stamp instead of "Immediately".
+      _fields: "id,date,modified,slug,status,link,title,content,excerpt,author,categories,tags,featured_media,template,password,sticky,meta,_links,_embedded",
       _embed: "author,wp:featuredmedia,wp:term",
     },
   });
@@ -188,7 +192,10 @@ export async function getPostForEdit(id: number): Promise<EditablePost | null> {
 
   return {
     id: data.id,
-    title: decodeEntities(data.title?.raw ?? "").trim(),
+    // WordPress's placeholder (see createPlaceholder) is inserted under core's
+    // literal "Auto Draft"; it must open BLANK, as wp-admin does (post-new.php
+    // clears the title in memory before the editor renders it).
+    title: data.status === "auto-draft" ? "" : decodeEntities(data.title?.raw ?? "").trim(),
     date: data.date ?? "",
     modified: data.modified ?? "",
     bodyHtml: data.content?.rendered ?? "",
@@ -273,14 +280,23 @@ export async function updatePost(id: number, patch: PostWrite, categoryPermalink
   return data;
 }
 
-/** Create a new post. Defaults to draft unless the caller sets a status. */
-export async function createPost(fields: PostWrite, categoryPermalink = false): Promise<SavedPost> {
-  const { data } = await adminFetch<SavedPost>(`/wp/v2/posts`, {
-    method: "POST",
-    body: { status: "draft", ...fields },
-    ...(categoryPermalink ? { headers: CATEGORY_PERMALINK_HEADER } : {}),
-  });
-  return data;
+/** WordPress's own empty placeholder for a NEW article — the `auto-draft` row
+ *  wp-admin's "Add New" inserts before anyone types — via the plugin (afa
+ *  1.23.0, `web/post-placeholder`; core REST refuses the internal status).
+ *  The editor asks for it the moment it opens, so every save it ever makes is
+ *  an UPDATE to a known id. Until the S59 port a new article was created by
+ *  its first autosave through `POST wp/v2/posts`, and a create whose response
+ *  was lost (the 30 s cut-off under load, a closed tab) was retried into a
+ *  same-title duplicate. The placeholder is invisible until a save turns it
+ *  into a draft, and WP-Cron deletes untouched ones after seven days. The
+ *  category-permalink header is unaffected: the manual save that publishes
+ *  is still `updatePost(id, …, true)`, and the plugin's hook runs on updates. */
+export async function createPlaceholder(): Promise<{ id: number }> {
+  const path = "/wp/v2/web/post-placeholder";
+  const { data } = await adminFetch<{ status?: string; data?: { id?: number } }>(path, { method: "POST" });
+  const id = Number(data?.data?.id);
+  if (!Number.isInteger(id) || id <= 0) throw new AdminApiError(500, path, "no id in the placeholder response");
+  return { id };
 }
 
 /** One post template the active theme registers. */

@@ -7,9 +7,12 @@ import { readProfile } from "@/lib/admin/settings";
 import { AdminAuthError } from "@/lib/admin/client";
 
 // New Article — the editor with no post. Categories are loaded so the picker is
-// real; everything else starts blank. Nothing exists in WordPress until the
-// editor's first autosave creates the draft (once something is written, a
-// minute in) — from then on it edits that draft in place under its real URL.
+// real; everything else starts blank. The editor asks WordPress for its
+// placeholder row the moment it mounts (WordPress's own auto-draft, invisible
+// until the first real save — see ArticleEditor's header note) and edits it in
+// place under its real URL from then on. The placeholder is requested from the
+// CLIENT, never from this render: a page render must not write — prefetches
+// and refreshes re-run it, and each would leave another row behind.
 export default async function AdminNewArticlePage() {
   let categories: CategoryNode[] = [];
   let templates: PostTemplate[] = [];

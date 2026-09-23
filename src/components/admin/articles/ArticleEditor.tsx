@@ -15,7 +15,7 @@ import type { AuthorOption } from "@/lib/admin/users";
 import { suggestTemplate } from "@/lib/admin/article-template";
 import { Dropdown, SearchInput } from "../Dropdown";
 import { useQueryClient } from "@tanstack/react-query";
-import { savePostAction, createPostAction, autosaveArticleAction, type EditorPayload } from "@/lib/admin/actions";
+import { savePostAction, createPlaceholderAction, autosaveArticleAction, type EditorPayload } from "@/lib/admin/actions";
 import { adminKeys } from "@/lib/admin/queries";
 import { searchTags, type TagOption } from "@/lib/admin/editor-actions";
 import { createTag } from "@/lib/admin/screen-actions";
@@ -59,11 +59,24 @@ const GutenbergEditor = dynamic(() => import("./GutenbergEditor"), {
 // not read): a DRAFT is written to WordPress by itself — at most once a
 // minute, always as a draft, the Status radio's intent never included; a
 // LIVE article (and Pending / Private) is written only by the button, and
-// leaving it with unsaved edits gets one plain confirm. A new article is
-// created by its first autosave — once something is written, never on open —
-// and edited in place from then on. Nothing is kept in the browser: after a
-// crash the last minute of a draft is gone, and so is anything unsaved on a
-// live article, which is exactly what wp-admin accepts.
+// leaving it with unsaved edits gets one plain confirm. Nothing is kept in
+// the browser: after a crash the last minute of a draft is gone, and so is
+// anything unsaved on a live article, which is exactly what wp-admin accepts.
+//
+// A NEW ARTICLE gets its id the moment the editor opens (S59, 2026-09-23,
+// ported from infotainment): WordPress's own empty placeholder — the
+// `auto-draft` row wp-admin's "Add New" inserts before anyone types — is
+// asked for in the background, and the URL swaps to it in place. Every save
+// the editor ever makes is therefore an UPDATE to a known id. Until S59 the
+// article was created by its first autosave and the editor learned the id
+// from that one response: a response that never arrived (the 30 s cut-off
+// under load, a closed or refreshed tab) left a draft the editor knew nothing
+// about, and its next save created AGAIN — one same-title draft per attempt.
+// The placeholder is invisible (internal status, listed nowhere, deleted by
+// WP-Cron after seven days if never written into), so an idle click-through
+// still leaves nothing a writer can see; the first real save turns it into a
+// draft. `savedStatus` stays null until then — WordPress holds nothing worth
+// showing yet.
 //
 // THE TITLE is an uncontrolled contentEditable (initialised once, read on save
 // through a ref) because a controlled contentEditable fights the cursor. That
@@ -252,15 +265,25 @@ export default function ArticleEditor({
    *  leaving must evict the client caches (see registerBody). */
   const savedThisVisitRef = useRef(false);
 
-  /* ---- Identity: which WordPress post this editor writes to. Null until the
-     first autosave of a NEW article creates the draft; from then on the editor
-     edits that draft in place — URL swapped underneath it, no remount, no
-     lost caret. State drives rendering; the ref is what the save lane reads,
-     so a button press queued behind the creating autosave already knows the
-     id it must update rather than creating a second post. */
+  /* ---- Identity: which WordPress post this editor writes to. Null only for
+     the few seconds between a NEW article opening and its placeholder
+     arriving (see the header note and ensurePlaceholder); from then on the
+     editor edits that row in place — URL swapped underneath it, no remount,
+     no lost caret. State drives rendering; the ref is what the save lane
+     reads, so a save queued behind the placeholder request already knows the
+     id it must update. A reopened placeholder (the writer refreshed after
+     the swap) arrives as `post` with status `auto-draft`. */
   const [postId, setPostId] = useState<number | null>(post?.id ?? null);
   const postIdRef = useRef<number | null>(post?.id ?? null);
-  const isCreate = postId === null;
+  /** Whether `post` is a placeholder nobody has written into yet — opened by
+   *  its URL after a refresh. It reads as a new article in every way but the
+   *  id: blank, undated, nothing saved. */
+  const isPlaceholder = post?.status === "auto-draft";
+  /** Once per mount — dev StrictMode runs effects twice, and a re-render must
+   *  never ask for a second placeholder. */
+  const placeholderAskedRef = useRef(false);
+  /** Why the last placeholder request failed — for the save that finds no id. */
+  const placeholderFailRef = useRef<{ expired?: boolean; outdated?: boolean } | null>(null);
 
   /* ---- Autosave + leave guard (the rule is in the header note).
      `baselineRef` is what "clean" means: a JSON snapshot of the editor as
@@ -285,6 +308,7 @@ export default function ArticleEditor({
     tick: () => void;
     flushOnLeave: () => Promise<boolean>;
     noteEdit: () => void;
+    startPlaceholder: () => void;
   } | null>(null);
 
   // Uncontrolled canvas field — seeded once by attachTitle, read through the ref.
@@ -376,8 +400,10 @@ export default function ArticleEditor({
   // (the truth). One value cannot be both, which is how the top bar's pill used
   // to read "Draft" over an article that was still live. Null while creating —
   // nothing is saved yet, so there is no truth to show.
-  const [pubStatus, setPubStatus] = useState<Status>(isCreate ? "Draft" : fromWpStatus(post?.status ?? "draft"));
-  const [savedStatus, setSavedStatus] = useState<Status | null>(isCreate ? null : fromWpStatus(post?.status ?? "draft"));
+  const [pubStatus, setPubStatus] = useState<Status>(post && !isPlaceholder ? fromWpStatus(post.status) : "Draft");
+  const [savedStatus, setSavedStatus] = useState<Status | null>(post && !isPlaceholder ? fromWpStatus(post.status) : null);
+  /** Nothing visible in WordPress yet — a new article, placeholder or not. */
+  const isCreate = savedStatus === null;
   const [statusOpen, setStatusOpen] = useState(false);
   const statusRowRef = useRef<HTMLDivElement>(null);
   const statusPopRef = useRef<HTMLDivElement>(null);
@@ -728,7 +754,9 @@ export default function ArticleEditor({
    * an in-session publish. Unpublished posts keep WordPress's own preview,
    * which needs a wp-admin session in the same browser (the owner has one).
    */
-  const previewHref = postId === null
+  // Nor for a placeholder nobody has written into (an id with savedStatus
+  // null): WordPress has no page for it until the first save makes it a draft.
+  const previewHref = postId === null || savedStatus === null
     ? undefined
     : savedStatus === "Published"
       ? wpLink || undefined
@@ -879,11 +907,11 @@ export default function ArticleEditor({
   };
 
   /** ONE save at a time, in order. A button press during an autosave waits
-   *  for it — and, on a brand-new article, then UPDATES the id that autosave
-   *  created instead of creating a second post (performSave reads postIdRef
-   *  when it runs, not when it was queued). The tick simply skips while
-   *  anything is in flight. Without the lane, an autosave response landing
-   *  after a publish would rewrite the screen with stale echoes. */
+   *  for it, and any save queued behind a new article's placeholder request
+   *  finds the id when it runs (performSave reads postIdRef then, not when
+   *  it was queued). The tick simply skips while anything is in flight.
+   *  Without the lane, an autosave response landing after a publish would
+   *  rewrite the screen with stale echoes. */
   const laneRef = useRef<Promise<unknown>>(Promise.resolve());
   const inFlightRef = useRef(false);
   /** A leave-flush already on its way for exactly this content, so the second
@@ -895,46 +923,88 @@ export default function ArticleEditor({
     return run;
   };
 
+  /** The id every save writes to — WordPress's placeholder for a new article
+   *  (see the header note). Asked for once when the editor opens
+   *  (startPlaceholder); asked for again HERE, inside the lane, only if that
+   *  request failed, so a save never finds itself without an id while
+   *  WordPress is reachable. Never a visible draft: the first real save is
+   *  what turns the placeholder into one. Adopting the id swaps the URL in
+   *  place, so a refresh lands on the real editor — no router.push, a
+   *  remount mid-sentence drops the caret. */
+  const ensurePlaceholder = async (): Promise<number | null> => {
+    if (postIdRef.current !== null) return postIdRef.current;
+    const res = await createPlaceholderAction();
+    if (!res.ok || !res.id) {
+      placeholderFailRef.current = { expired: res.expired, outdated: res.outdated };
+      return null;
+    }
+    placeholderFailRef.current = null;
+    postIdRef.current = res.id;
+    setPostId(res.id);
+    window.history.replaceState(null, "", `/admin/articles/${res.id}`);
+    return res.id;
+  };
+
+  /** What a save with no id can say. The two permanent causes are named;
+   *  anything else reads as WordPress being slow, which is what it is. */
+  const noIdMessage = (kind: SaveKind): string => {
+    const why = placeholderFailRef.current;
+    if (why?.expired) return "Not saved — your session has expired. Sign in again in another tab; autosave then resumes.";
+    if (why?.outdated) return "Not saved — the WordPress plugin is out of date: AMS Frontend API 1.23.0 adds the article placeholder.";
+    return kind === "manual"
+      ? "Couldn't reach WordPress to start the article. Please try again."
+      : "Not saved — WordPress did not answer in time; trying again in a minute.";
+  };
+
+  /** The mount-time placeholder request, through the lane so a save queued
+   *  behind it finds the id. Only the two permanent failures are surfaced
+   *  here; a slow WordPress is left for the first save to retry and report. */
+  const startPlaceholder = () => {
+    void runExclusive(ensurePlaceholder).then((id) => {
+      const why = placeholderFailRef.current;
+      if (id === null && (why?.expired || why?.outdated)) setSaveMsg({ kind: "err", text: noIdMessage("auto") });
+    });
+  };
+
   /** The write. `snap` is the snapshot the payload was built from and becomes
    *  the baseline on success — NOT the editor as it stands when the response
    *  lands (see baselineRef). Returns whether it landed. */
   const performSave = async (kind: SaveKind, payload: EditorPayload, snap: EditorSnapshot): Promise<boolean> => {
-    const id = postIdRef.current;
     inFlightRef.current = true;
     if (kind === "manual") setSaving(true);
     else setAutosaving(true);
     setSaveMsg(null);
+    const id = await ensurePlaceholder();
     const res =
-      kind === "auto"
-        ? await autosaveArticleAction(id, payload)
-        : id === null
-          ? await createPostAction(payload)
+      id === null
+        ? null
+        : kind === "auto"
+          ? await autosaveArticleAction(id, payload)
           : await savePostAction(id, payload);
     inFlightRef.current = false;
     if (kind === "manual") setSaving(false);
     else setAutosaving(false);
 
-    if (!res.ok) {
+    if (id === null || !res?.ok) {
+      // A failed attempt restarts the minute, so the tick's retry keeps the
+      // promise the message makes. Before S59 the clock was stamped only on
+      // success, so the "next" try came on the very next 5s tick — under a
+      // slow WordPress, one 30s attempt after another, without pause.
+      lastSaveAtRef.current = Date.now();
       setSaveMsg({
         kind: "err",
         text:
-          kind === "manual"
-            ? res.error ?? "Save failed."
-            : res.expired
-              ? "Not saved — your session has expired. Sign in again in another tab; autosave then resumes."
-              : `Not saved — ${res.error ?? "WordPress did not answer in time"}; trying again in a minute.`,
+          id === null
+            ? noIdMessage(kind)
+            : kind === "manual"
+              ? res?.error ?? "Save failed."
+              : res?.expired
+                ? "Not saved — your session has expired. Sign in again in another tab; autosave then resumes."
+                : `Not saved — ${res?.error ?? "WordPress did not answer in time"}; trying again in a minute.`,
       });
       return false;
     }
 
-    // A brand-new article now exists: edit it in place from here on. The URL
-    // follows, so a refresh lands on the real editor; no router.push —
-    // remounting mid-sentence would drop the caret.
-    if (id === null && res.id) {
-      postIdRef.current = res.id;
-      setPostId(res.id);
-      window.history.replaceState(null, "", `/admin/articles/${res.id}`);
-    }
     lastSaveAtRef.current = Date.now();
     savedThisVisitRef.current = true;
     // The Articles list is a react-query screen (30s staleTime): mark it stale
@@ -979,17 +1049,18 @@ export default function ArticleEditor({
       // now, or it was published before (an update, an unpublish, going
       // private) — kick off the background purge+re-warm. `everPublished`
       // here is the pre-save value: a never-published draft skips this.
-      const legacyId = id ?? res.id;
-      if (legacyId && (res.status === "publish" || everPublished || res.wasPublic)) startLegacyRefresh(legacyId);
+      if (res.status === "publish" || everPublished || res.wasPublic) startLegacyRefresh(id);
     }
     return true;
   };
 
   /** Whether a NEW article has been written into at all. A category tick with
    *  no title and no body is not an article yet — and a click-through that
-   *  types nothing must create nothing on the live site. */
+   *  types nothing must leave nothing a writer can see (the placeholder does
+   *  not count: it stays invisible until a save turns it into a draft). Once
+   *  WordPress holds a real draft, every change is worth saving. */
   const hasWriting = (snap: EditorSnapshot): boolean =>
-    postIdRef.current !== null || snap.title.length > 0 || Boolean(bodyRef.current?.isDirty());
+    savedStatus !== null || snap.title.length > 0 || Boolean(bodyRef.current?.isDirty());
 
   /** The 5s tick: the readout, then — at most once a minute — a dirty draft. */
   const tick = () => {
@@ -1134,8 +1205,19 @@ export default function ArticleEditor({
       tick,
       flushOnLeave,
       noteEdit: () => setDirtyShown(true),
+      startPlaceholder,
     };
   });
+
+  /** A NEW article asks WordPress for its placeholder the moment it opens —
+   *  see the header note and ensurePlaceholder. Placed AFTER the guard effect
+   *  on purpose: effects run in definition order, and this one reads the
+   *  guard on its first run. Refs only, so it needs no dependencies. */
+  useEffect(() => {
+    if (postIdRef.current !== null || placeholderAskedRef.current) return;
+    placeholderAskedRef.current = true;
+    guardRef.current?.startPlaceholder();
+  }, []);
 
 
   /* ---- The `Post` tab ---------------------------------------------------

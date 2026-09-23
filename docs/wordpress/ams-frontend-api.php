@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AMS Frontend API
  * Description: General-purpose endpoints for the AMS Infotainment Next.js frontend (add new ones here as needed). Read-only + a standalone hero-slider embed + the homepage featured-program picker + anonymous REST commenting + per-user login tokens for authenticated writes + program custom-meta exposed to REST + skips AMS Cache's synchronous page warmer on dashboard writes (96s -> under 1s). Self-contained — deactivate/delete anytime with zero effect on anything else.
- * Version:     1.22.5
+ * Version:     1.23.0
  * Author:      Soth Kimleng
  *
  * Standalone "add endpoints as needed" API file, separate from the legacy
@@ -76,6 +76,22 @@
  *        ones (Gutenberg gets it from editor bootstrap, not the API), so the
  *        dashboard's article editor had no way to render the dropdown without
  *        hardcoding sixteen theme filenames. Gated on edit_posts.
+ *
+ *  POST /wp-json/wp/v2/web/post-placeholder           a new article's id (1.23.0)
+ *        Creates WordPress's own empty placeholder — an `auto-draft`, the same
+ *        row wp-admin's "Add New" inserts before anyone types — and answers
+ *        { status, data: { id, post_status } }. The dashboard's article editor
+ *        asks for it the moment New Article opens, so every save it ever makes
+ *        is an update to a known id: no create can be lost in flight and
+ *        retried into a same-title duplicate (the 2026-09-22 investigation —
+ *        see ams_afa_create_post_placeholder; ported from infotainment's afa
+ *        1.24.0, S59). The placeholder is invisible (internal status; the
+ *        Articles list and counts read publish/future/draft/pending only) and
+ *        WordPress's daily `wp_scheduled_auto_draft_delete` removes untouched
+ *        ones after seven days — WP-Cron runs here again since 2026-09-16.
+ *        Gated on edit_posts; runs as the X-AMS-Token user, who becomes the
+ *        author. The category-permalink header keeps working: the first real
+ *        save is an ordinary REST update, which rest_after_insert_post sees.
  *
  *  GET /hero-embed[?alias=<slider alias>]                 standalone Slider
  *        Renders ONE Slider Revolution slider (no theme chrome), for embedding
@@ -1123,6 +1139,77 @@ function ams_afa_get_post_templates( $request ) {
             'data'      => $data,
         ),
         200
+    );
+}
+
+/* ───────────────── Article placeholder (dashboard article editor) ─────────── */
+
+add_action( 'rest_api_init', function () {
+    register_rest_route( 'wp/v2/web', 'post-placeholder', array(
+        'methods'             => 'POST',
+        'callback'            => 'ams_afa_create_post_placeholder',
+        // The same gate as wp-admin's "Add New". Runs as the X-AMS-Token user
+        // via the determine_current_user filter, who becomes the author.
+        'permission_callback' => function () {
+            return current_user_can( 'edit_posts' );
+        },
+    ) );
+} );
+
+/**
+ * POST /wp-json/wp/v2/web/post-placeholder — WordPress's own empty placeholder
+ * for a new article, created the moment the dashboard's editor opens
+ * (1.23.0; ported from infotainment's afa 1.24.0, S59).
+ *
+ * WHY. Until 1.23.0 the dashboard created a new article on its FIRST autosave,
+ * a minute after the writer started typing, and learned the article's id from
+ * that one response. A response that never arrived — the dashboard cuts every
+ * call at 30 s, or the tab was closed or refreshed mid-write — left WordPress
+ * holding a draft the editor knew nothing about, so the editor's next save
+ * CREATED AGAIN: one same-title draft per attempt (the 2026-09-22
+ * investigation). Core's own editors never have this problem because
+ * post-new.php inserts an `auto-draft` row before anything is typed, and every
+ * save from then on is an update to a known id. This route hands the dashboard
+ * that same row.
+ *
+ * HOW. get_default_post_to_edit( 'post', true ) is the exact function
+ * post-new.php calls: it inserts { post_title 'Auto Draft', post_status
+ * 'auto-draft', post_author = the current user }, fires wp_after_insert_post,
+ * and schedules the daily `wp_scheduled_auto_draft_delete` job if it is not
+ * already — the job that deletes untouched placeholders after seven days
+ * (WP-Cron runs on this site again since 2026-09-16). The function lives in
+ * wp-admin/includes/post.php, which a REST request does not load, hence the
+ * require. Core REST cannot do this by itself: `POST wp/v2/posts` validates
+ * `status` against the non-internal statuses only, and `auto-draft` is
+ * internal.
+ *
+ * The placeholder is invisible: the Articles list and the dashboard counts
+ * read publish/future/draft/pending only, core's list tables hide internal
+ * statuses, and the public site never sees it. The editor's first real save
+ * turns it into a `draft` (or publishes it) through core's ordinary update
+ * route — the placeholder itself is never written by this plugin, and the
+ * X-AMS-Category-Permalink hook above still runs on that update.
+ */
+function ams_afa_create_post_placeholder( $request ) {
+    if ( ! function_exists( 'get_default_post_to_edit' ) ) {
+        require_once ABSPATH . 'wp-admin/includes/post.php';
+    }
+    $post = get_default_post_to_edit( 'post', true );
+    if ( ! ( $post instanceof WP_Post ) || (int) $post->ID <= 0 ) {
+        return new WP_REST_Response(
+            array( 'status' => 'ERROR', 'message' => 'WordPress could not create the placeholder.' ),
+            500
+        );
+    }
+    return new WP_REST_Response(
+        array(
+            'status' => 'OK',
+            'data'   => array(
+                'id'          => (int) $post->ID,
+                'post_status' => (string) $post->post_status,
+            ),
+        ),
+        201
     );
 }
 

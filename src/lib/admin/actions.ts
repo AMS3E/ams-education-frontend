@@ -6,7 +6,7 @@
 
 import { redirect } from "next/navigation";
 import { revalidateTag } from "next/cache";
-import { updatePost, createPost, readPostStatus, type PostWrite } from "./post-edit";
+import { updatePost, createPlaceholder, readPostStatus, type PostWrite } from "./post-edit";
 import { AdminAuthError, AdminApiError } from "./client";
 import { safeTag } from "@/lib/api/client";
 
@@ -80,8 +80,6 @@ export interface SaveResult {
   /** The permalink WordPress computed for the saved state — on a publish, the
    *  article's live URL. Feeds the editor's preview control. */
   link?: string;
-  /** New post id, on a successful create. */
-  id?: number;
   /** Category ids WordPress actually stored. */
   categories?: number[];
 }
@@ -160,30 +158,49 @@ export async function savePostAction(id: number, payload: EditorPayload): Promis
  *   - an expired session is REPORTED, not redirected — a redirect would throw
  *     the writer out of the editor with their work still on screen;
  *   - no public revalidation: nothing public changed.
- * `id` null = first activity on a new article: creates the draft, returns its
- * id, and the editor switches to editing it in place.
+ * A new article's first autosave lands here too: `id` is the placeholder the
+ * editor was handed on open (createPlaceholderAction), and writing `draft`
+ * over WordPress's `auto-draft` is what makes the article visible.
  */
-export async function autosaveArticleAction(id: number | null, payload: EditorPayload): Promise<SaveResult> {
+export async function autosaveArticleAction(id: number, payload: EditorPayload): Promise<SaveResult> {
   try {
     // Status AND date are the button's to commit: a date written here would
     // pin a floating draft (see PostWrite.date) a minute after it was picked.
     const write: PostWrite = { ...toWrite(payload), status: "draft" };
     delete write.date;
-    const saved = id === null ? await createPost(write) : await updatePost(id, write);
-    return { ok: true, id: saved.id, status: saved.status, slug: saved.slug, link: saved.link, categories: saved.categories };
+    const saved = await updatePost(id, write);
+    return { ok: true, status: saved.status, slug: saved.slug, link: saved.link, categories: saved.categories };
   } catch (e) {
     if (e instanceof AdminAuthError) return { ok: false, expired: true, error: "Your session has expired." };
     return { ok: false, error: e instanceof AdminApiError ? "WordPress rejected the autosave." : "Autosave failed." };
   }
 }
 
-export async function createPostAction(payload: EditorPayload): Promise<SaveResult> {
+export interface PlaceholderResult {
+  ok: boolean;
+  /** The placeholder's post id, on success. */
+  id?: number;
+  /** The session is gone (401) — see SaveResult.expired. */
+  expired?: boolean;
+  /** WordPress has no such route: the plugin on the site predates afa 1.23.0. */
+  outdated?: boolean;
+}
+
+/**
+ * The placeholder for a NEW article — WordPress's own `auto-draft` row, see
+ * createPlaceholder. Reported, never redirected, for the autosave's reason:
+ * it runs the moment the editor opens and again under a save, with the
+ * writer's work on screen. The two permanent causes are named so the editor
+ * can say them; anything else reads as WordPress being slow, and the next
+ * save simply asks again.
+ */
+export async function createPlaceholderAction(): Promise<PlaceholderResult> {
   try {
-    const saved = await createPost(toWrite(payload), true);
-    refreshPublic(saved.status, saved.slug, payload.categorySlugs);
-    return { ok: true, id: saved.id, status: saved.status, slug: saved.slug, link: saved.link, categories: saved.categories, date: saved.date };
+    const { id } = await createPlaceholder();
+    return { ok: true, id };
   } catch (e) {
-    if (e instanceof AdminAuthError) redirect("/login");
-    return { ok: false, error: e instanceof AdminApiError ? "WordPress rejected the new article. Check your permissions and try again." : "Couldn't create the article. Please try again." };
+    if (e instanceof AdminAuthError) return { ok: false, expired: true };
+    if (e instanceof AdminApiError && e.status === 404) return { ok: false, outdated: true };
+    return { ok: false };
   }
 }
