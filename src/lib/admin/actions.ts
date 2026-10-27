@@ -136,7 +136,7 @@ export async function savePostAction(id: number, payload: EditorPayload): Promis
     if (!wasPublic && payload.status !== "publish") {
       wasPublic = (await readPostStatus(id)) === "publish";
     }
-    const saved = await updatePost(id, toWrite(payload), true);
+    const saved = await updatePost(id, toWrite(payload));
     refreshPublic(saved.status, saved.slug, payload.categorySlugs, wasPublic);
     return { ok: true, status: saved.status, slug: saved.slug, link: saved.link, categories: saved.categories, date: saved.date, wasPublic };
   } catch (e) {

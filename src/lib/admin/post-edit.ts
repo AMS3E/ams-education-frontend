@@ -252,8 +252,6 @@ export async function readPostStatus(id: number): Promise<string> {
   }
 }
 
-const CATEGORY_PERMALINK_HEADER = { "X-AMS-Category-Permalink": "1" };
-
 /** Update an existing post. WordPress accepts POST on the item route as an update.
  *
  *  ONE WRITE, except for a single measured exception: WordPress validates an
@@ -268,14 +266,13 @@ const CATEGORY_PERMALINK_HEADER = { "X-AMS-Category-Permalink": "1" };
  *  — so a rejected write loses every other edit in the payload (title, body,
  *  categories, SEO), which is what makes this worth a second round trip rather
  *  than a comment. It only fires when a password is actually being set. */
-export async function updatePost(id: number, patch: PostWrite, categoryPermalink = false): Promise<SavedPost> {
+export async function updatePost(id: number, patch: PostWrite): Promise<SavedPost> {
   if (patch.password && patch.sticky === false) {
     await adminFetch(`/wp/v2/posts/${id}`, { method: "POST", body: { sticky: false } });
   }
   const { data } = await adminFetch<SavedPost>(`/wp/v2/posts/${id}`, {
     method: "POST",
     body: patch,
-    ...(categoryPermalink ? { headers: CATEGORY_PERMALINK_HEADER } : {}),
   });
   return data;
 }

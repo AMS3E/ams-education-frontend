@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AMS Frontend API
  * Description: General-purpose endpoints for the AMS Infotainment Next.js frontend (add new ones here as needed). Read-only + a standalone hero-slider embed + the homepage featured-program picker + anonymous REST commenting + per-user login tokens for authenticated writes + program custom-meta exposed to REST + skips AMS Cache's synchronous page warmer on dashboard writes (96s -> under 1s). Self-contained — deactivate/delete anytime with zero effect on anything else.
- * Version:     1.23.0
+ * Version:     1.24.0
  * Author:      Soth Kimleng
  *
  * Standalone "add endpoints as needed" API file, separate from the legacy
@@ -90,8 +90,8 @@
  *        WordPress's daily `wp_scheduled_auto_draft_delete` removes untouched
  *        ones after seven days — WP-Cron runs here again since 2026-09-16.
  *        Gated on edit_posts; runs as the X-AMS-Token user, who becomes the
- *        author. The category-permalink header keeps working: the first real
- *        save is an ordinary REST update, which rest_after_insert_post sees.
+ *        author. The first real save is an ordinary REST update; its address
+ *        is written by the AMS Permalink plugin, not by this file (1.24.0).
  *
  *  GET /hero-embed[?alias=<slider alias>]                 standalone Slider
  *        Renders ONE Slider Revolution slider (no theme chrome), for embedding
@@ -118,11 +118,12 @@
  *        (ams_afa_slider_alias) rather than from a hand-kept list.
  *
  * ── Behaviour changes ────────────────────────────────────────────────────────
- *  Dashboard article permalinks (1.22.0): a core REST post write carrying
- *        X-AMS-Category-Permalink: 1 stores `custom_permalink` as
- *        <deepest-category-slug>/<post-slug>. It runs after core has persisted
- *        terms, so the `link` in that same REST response is already canonical.
- *        Ordinary wp-admin, imports and autosaves remain untouched.
+ *  Dashboard article permalinks (1.22.0, removed in 1.24.0): a core REST post
+ *        write carrying X-AMS-Category-Permalink: 1 used to store
+ *        `custom_permalink` as <deepest-category-slug>/<post-slug>, keeping no
+ *        history of the address it overwrote. The AMS Permalink plugin is the
+ *        site's only address writer now (it saves every old address and
+ *        301-forwards it), so the header is ignored if a dashboard sends it.
  *
  *  Profile avatar (1.20.0): a writable `ams_avatar` REST field on the user
  *        object, so GET/POST wp/v2/users/me carries the dashboard's profile
@@ -189,74 +190,6 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-/* ───────── Dashboard article category permalink (core REST write) ───────── */
-
-/** Number of ancestors above a category. Invalid/cyclic trees stop safely. */
-function ams_afa_category_depth( $term_id ) {
-    $depth = 0;
-    $seen  = array();
-    $term  = get_term( (int) $term_id, 'category' );
-
-    while ( $term && ! is_wp_error( $term ) && $term->parent ) {
-        if ( isset( $seen[ $term->term_id ] ) ) {
-            break;
-        }
-        $seen[ $term->term_id ] = true;
-        $depth++;
-        $term = get_term( (int) $term->parent, 'category' );
-    }
-    return $depth;
-}
-
-/** Deepest assigned category; Khmer-name order makes equal-depth ties stable. */
-function ams_afa_permalink_category( $post_id ) {
-    $terms = wp_get_post_categories( (int) $post_id, array( 'fields' => 'all' ) );
-    if ( is_wp_error( $terms ) || empty( $terms ) ) {
-        return null;
-    }
-
-    // Ignore Uncategorized whenever the writer assigned a real category.
-    $default_id = (int) get_option( 'default_category' );
-    if ( count( $terms ) > 1 ) {
-        $terms = array_values( array_filter( $terms, function ( $term ) use ( $default_id ) {
-            return (int) $term->term_id !== $default_id;
-        } ) );
-    }
-
-    usort( $terms, function ( $a, $b ) {
-        $depth = ams_afa_category_depth( $b->term_id ) - ams_afa_category_depth( $a->term_id );
-        return 0 !== $depth ? $depth : strnatcasecmp( $a->name, $b->name );
-    } );
-    return $terms ? $terms[0] : null;
-}
-
-/**
- * Core has already saved title, slug and terms when this action fires, but has
- * not prepared its response yet. Updating the Custom Permalinks meta here makes
- * the response's `link` immediately read /category-slug/post-slug/.
- */
-add_action( 'rest_after_insert_post', function ( $post, $request ) {
-    if ( '1' !== (string) $request->get_header( 'x-ams-category-permalink' ) ) {
-        return;
-    }
-    if ( ! $post instanceof WP_Post || 'post' !== $post->post_type || ! current_user_can( 'edit_post', $post->ID ) ) {
-        return;
-    }
-
-    $category = ams_afa_permalink_category( $post->ID );
-    $slug     = sanitize_title( $post->post_name );
-    if ( ! $category || '' === $category->slug || '' === $slug ) {
-        return;
-    }
-
-    update_post_meta(
-        $post->ID,
-        'custom_permalink',
-        trailingslashit( trim( sanitize_title( $category->slug ), '/' ) . '/' . trim( $slug, '/' ) )
-    );
-    clean_post_cache( $post->ID );
-}, 10, 2 );
-
 /* ─────────────────────────────── CONFIG ───────────────────────────────────── */
 
 // The Slider Revolution alias shown as the homepage hero (and the fallback for
@@ -287,7 +220,7 @@ function ams_afa_hero_aliases() {
 /** Bumped on every release. Part of the embed cache key, so shipping a new
  *  version invalidates every cached frame rather than leaving stale HTML (and a
  *  stale AMS_PARENTS list) behind a deploy. */
-define( 'AMS_AFA_VERSION', '1.22.5' );
+define( 'AMS_AFA_VERSION', '1.24.0' );
 
 /** How long a rendered embed is reused server-side. The cost it avoids is a
  *  ~3.7s WordPress boot; the price is that a slider edited in wp-admin takes up
@@ -1187,8 +1120,9 @@ add_action( 'rest_api_init', function () {
  * read publish/future/draft/pending only, core's list tables hide internal
  * statuses, and the public site never sees it. The editor's first real save
  * turns it into a `draft` (or publishes it) through core's ordinary update
- * route — the placeholder itself is never written by this plugin, and the
- * X-AMS-Category-Permalink hook above still runs on that update.
+ * route — the placeholder itself is never written by this plugin. (Through
+ * 1.23.0 the X-AMS-Category-Permalink hook also ran on that update; since
+ * 1.24.0 the AMS Permalink plugin writes the address instead.)
  */
 function ams_afa_create_post_placeholder( $request ) {
     if ( ! function_exists( 'get_default_post_to_edit' ) ) {
